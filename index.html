@@ -1,60 +1,223 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
   <head>
+    <!-- ============================================
+         Document Configuration
+         ============================================ -->
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+
+    <meta
+      name="description"
+      content="منصة تحكم المتجر من تمام — إدارة المنتجات والطلبات والعملاء والمخزون والمدفوعات والتقارير من مكان واحد."
+    />
+
+    <meta
+      name="keywords"
+      content="تمام, Tamam, متجر, إدارة المتجر, منصة المتجر, إدارة المنتجات, إدارة الطلبات, المخزون, العملاء, التقارير"
+    />
+
+    <meta name="author" content="Tamam" />
+
+    <meta name="application-name" content="Tamam Store" />
+
+    <meta name="generator" content="Vite" />
+
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+    <!-- Prevent automatic phone/email detection -->
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- ============================================
+         Theme & Browser UI
+         ============================================ -->
     <meta name="color-scheme" content="light dark" />
-    <meta name="description" content="Store Control Platform — منصة تحكم المتجر" />
 
+    <meta
+      name="theme-color"
+      content="#047857"
+      media="(prefers-color-scheme: light)"
+    />
+
+    <meta
+      name="theme-color"
+      content="#022c22"
+      media="(prefers-color-scheme: dark)"
+    />
+
+    <!-- ============================================
+         Favicon
+         ============================================ -->
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+
+    <link rel="apple-touch-icon" href="/icon.svg" />
+
+    <!-- ============================================
+         Canonical URL
+         ============================================ -->
+    <link rel="canonical" href="https://store.tamaam.cloud/" />
+
+    <!-- ============================================
+         Open Graph / Social Sharing
+         ============================================ -->
+    <meta property="og:type" content="website" />
+
+    <meta property="og:title" content="منصة تحكم المتجر | Tamam Store" />
+
+    <meta
+      property="og:description"
+      content="منصة متكاملة لإدارة متجرك من تمام — المنتجات والطلبات والعملاء والمخزون والتقارير."
+    />
+
+    <meta property="og:url" content="https://store.tamaam.cloud/" />
+
+    <meta property="og:site_name" content="Tamam" />
+
+    <meta property="og:locale" content="ar_EG" />
+
+    <meta property="og:locale:alternate" content="en_US" />
+
+    <meta
+      property="og:image"
+      content="https://store.tamaam.cloud/og-image.png"
+    />
+    <meta property="og:image:alt" content="Tamam Store Control Platform" />
+
+    <!-- ============================================
+         Twitter / X Card
+         ============================================ -->
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <meta name="twitter:title" content="منصة تحكم المتجر | Tamam Store" />
+
+    <meta
+      name="twitter:description"
+      content="منصة متكاملة لإدارة متجرك من تمام."
+    />
+
+    <meta
+      name="twitter:image"
+      content="https://store.tamaam.cloud/og-image.png"
+    />
+
+    <!-- ============================================
+         PWA / Web App
+         ============================================ -->
+
+    <!-- Uncomment when manifest.json exists -->
+    <!-- <link rel="manifest" href="/manifest.json" /> -->
+
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
+    <meta name="apple-mobile-web-app-title" content="Tamam Store" />
+
+    <!-- ============================================
+         Initial Theme & Language
+         Prevents Flash of Incorrect Theme (FOIT/FOUT)
+         ============================================ -->
     <script>
-      (function () {
+      (() => {
         try {
-          var theme = localStorage.getItem("store-theme-preference");
+          const THEME_KEY = "store-theme-preference";
+          const LANGUAGE_KEY = "store-language";
 
-          // Default to System mode
-          if (!theme || theme === "system") {
-            theme = "system";
-            localStorage.setItem("store-theme-preference", "system");
-          }
+          const root = document.documentElement;
 
-          var isDark =
-            theme === "dark" ||
-            (theme === "system" &&
-              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          /* --------------------------------------------
+             Theme
+             -------------------------------------------- */
 
-          if (isDark) {
-            document.documentElement.classList.add("dark");
-          } else {
-            document.documentElement.classList.remove("dark");
-          }
+          const storedTheme = localStorage.getItem(THEME_KEY);
 
-          // Listen for system theme changes when in system mode
+          const theme =
+            storedTheme === "light" ||
+            storedTheme === "dark" ||
+            storedTheme === "system"
+              ? storedTheme
+              : "system";
+
+          /*
+           * Persist the normalized value so the application
+           * always works with a known theme preference.
+           */
+          localStorage.setItem(THEME_KEY, theme);
+
+          const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+          const applyTheme = () => {
+            const isDark =
+              theme === "dark" || (theme === "system" && mediaQuery.matches);
+
+            root.classList.toggle("dark", isDark);
+
+            root.style.colorScheme = isDark ? "dark" : "light";
+          };
+
+          applyTheme();
+
+          /*
+           * React to OS theme changes only while using
+           * the System preference.
+           */
           if (theme === "system") {
-            window
-              .matchMedia("(prefers-color-scheme: dark)")
-              .addEventListener("change", function (e) {
-                if (e.matches) {
-                  document.documentElement.classList.add("dark");
-                } else {
-                  document.documentElement.classList.remove("dark");
-                }
-              });
+            const handleSystemThemeChange = (event) => {
+              root.classList.toggle("dark", event.matches);
+              root.style.colorScheme = event.matches ? "dark" : "light";
+            };
+
+            if (mediaQuery.addEventListener) {
+              mediaQuery.addEventListener("change", handleSystemThemeChange);
+            } else {
+              // Legacy Safari support
+              mediaQuery.addListener(handleSystemThemeChange);
+            }
           }
 
-          // Language
-          var language = localStorage.getItem("store-language") || "ar";
-          document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
-          document.documentElement.lang = language;
-        } catch (e) {}
+          /* --------------------------------------------
+             Language
+             -------------------------------------------- */
+
+          const storedLanguage = localStorage.getItem(LANGUAGE_KEY);
+
+          const language =
+            storedLanguage === "en" || storedLanguage === "ar"
+              ? storedLanguage
+              : "ar";
+
+          localStorage.setItem(LANGUAGE_KEY, language);
+
+          root.lang = language;
+          root.dir = language === "ar" ? "rtl" : "ltr";
+        } catch {
+          /*
+           * Safe defaults if localStorage or matchMedia
+           * is unavailable.
+           */
+          document.documentElement.lang = "ar";
+          document.documentElement.dir = "rtl";
+        }
       })();
     </script>
 
-    <title>منصة تحكم المتجر | Store Control Platform</title>
+    <!-- ============================================
+         Page Title
+         ============================================ -->
+    <title>منصة تحكم المتجر | Tamam Store</title>
   </head>
 
   <body>
+    <!-- React Application -->
     <div id="root"></div>
+
+    <!-- Application Entry -->
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
