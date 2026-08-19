@@ -138,6 +138,17 @@ export interface StoreTypeMappingDto {
   rejectionReason?: string;
 }
 
+export interface StoreCategoryDto {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  descriptionAr?: string;
+  descriptionEn?: string;
+  iconUrl?: string;
+  displayOrder: number;
+  isActive: boolean;
+}
+
 // ============================================================
 // Menu Categories
 // ============================================================
@@ -384,7 +395,7 @@ export interface StoreOrderItemDto {
   productNameEn?: string;
   quantity: number;
   unitPrice: number;
-  options: string;
+  options?: string | any[] | null;
 }
 
 export interface StoreOrderDto {
@@ -443,7 +454,8 @@ export interface GroupDealDto {
 export interface CreateGroupDealDto {
   name: string;
   description?: string;
-  discountPercentage: number;
+  discountType: string;
+  discountValue: number;
   validFrom: string;
   validTo: string;
   items?: CreateGroupDealItemDto[];
@@ -457,10 +469,11 @@ export interface CreateGroupDealItemDto {
 export interface UpdateGroupDealDto {
   name?: string;
   description?: string;
-  discountPercentage: number;
-  validFrom: string;
-  validTo: string;
-  isActive: boolean;
+  discountType?: string;
+  discountValue?: number;
+  validFrom?: string;
+  validTo?: string;
+  isActive?: boolean;
 }
 
 // ============================================================

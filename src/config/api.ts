@@ -40,11 +40,16 @@ export const ENDPOINTS = {
     GLOBAL_DISCOUNT: "/api/store/global-discount",
     REVIEWS: "/api/store/reviews",
 
-    // Store Types (owner can view & request types)
+    // Store Types
     TYPES: "/api/store/store-types",
     TYPES_AVAILABLE: "/api/store/store-types/available",
+    TYPES_BY_CATEGORY: (categoryId: string) =>
+      `/api/store/store-types/available?categoryId=${categoryId}`,
     ADD_TYPE: (storeTypeId: string) => `/api/store/store-types/${storeTypeId}`,
     REMOVE_TYPE: (mappingId: string) => `/api/store/store-types/${mappingId}`,
+
+    // Categories Available
+    CATEGORIES_AVAILABLE: "/api/store/categories/available",
 
     // Menu Categories
     CATEGORIES: "/api/store/menu-categories",
@@ -94,6 +99,7 @@ export const ENDPOINTS = {
     ORDER_BY_ID: (orderId: string) => `/api/store/orders/${orderId}`,
     ORDER_ACCEPT: (orderId: string) => `/api/store/orders/${orderId}/accept`,
     ORDER_REJECT: (orderId: string) => `/api/store/orders/${orderId}/reject`,
+    ORDER_CANCEL: (orderId: string) => `/api/store/orders/${orderId}/cancel`,
     ORDER_STATUS: (orderId: string) => `/api/store/orders/${orderId}/status`,
     ORDER_READY_FOR_DRIVER: (orderId: string) =>
       `/api/store/orders/${orderId}/ready-for-driver`,

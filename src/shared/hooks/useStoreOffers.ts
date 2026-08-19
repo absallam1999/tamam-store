@@ -1,5 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { GroupDealDto, CreateGroupDealDto, UpdateGroupDealDto } from "../types";
+import type {
+  GroupDealDto,
+  CreateGroupDealDto,
+  UpdateGroupDealDto,
+} from "../types";
 import { storeApi } from "../../config/storeApi";
 
 export const GROUP_DEALS_KEY = "storeGroupDeals";
@@ -92,18 +96,3 @@ export const useDeleteGroupDeal = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: [GROUP_DEALS_KEY] }),
   });
 };
-
-// ============================================================
-// Note: If you need toggle active for group deals, add it here
-// ============================================================
-
-// Optional: Toggle active status (if endpoint exists)
-// export const useToggleGroupDealActive = () => {
-//   const qc = useQueryClient();
-//   return useMutation({
-//     mutationFn: async (dealId: string) => {
-//       await storeApi.toggleGroupDealActive(dealId);
-//     },
-//     onSuccess: () => qc.invalidateQueries({ queryKey: [GROUP_DEALS_KEY] }),
-//   });
-// };

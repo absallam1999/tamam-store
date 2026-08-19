@@ -1,9 +1,11 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@app/providers/AuthProvider";
-import { useLanguage } from "@/shared/hooks/useLanguage";
+import { useLanguage } from "@shared/hooks/useLanguage";
 import { useToast } from "@shared/components/Toaster";
 import { cn } from "@shared/utils/cn";
+import { useStoreCategories } from "@shared/hooks/useStoreTypes";
+import { apiClient } from "@/lib/api-client";
 
 // ============================================
 // Types
@@ -27,21 +29,11 @@ interface ValidationErrors {
   acceptTerms?: string;
 }
 
-// ============================================
-// Store types the user can select
-// ============================================
-
-const STORE_TYPES = [
-  { value: "restaurant", labelAr: "مطعم", labelEn: "Restaurant" },
-  { value: "cafe", labelAr: "كافيه", labelEn: "Café" },
-  { value: "grocery", labelAr: "بقالة", labelEn: "Grocery" },
-  { value: "bakery", labelAr: "مخبز", labelEn: "Bakery" },
-  { value: "pharmacy", labelAr: "صيدلية", labelEn: "Pharmacy" },
-  { value: "flowers", labelAr: "زهور", labelEn: "Flowers" },
-  { value: "electronics", labelAr: "إلكترونيات", labelEn: "Electronics" },
-  { value: "clothing", labelAr: "ملابس", labelEn: "Clothing" },
-  { value: "other", labelAr: "أخرى", labelEn: "Other" },
-];
+interface CityOption {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+}
 
 // ============================================
 // Translations
@@ -65,13 +57,22 @@ const t = {
     en: "Cairo Grand Restaurant",
   },
   address: { ar: "العنوان (اختياري)", en: "Address (optional)" },
-  addressPlaceholder: { ar: "شارع رئيسي، مدينة", en: "Main Street, City" },
-  city: { ar: "المدينة (اختياري)", en: "City (optional)" },
-  cityPlaceholder: { ar: "القاهرة", en: "Cairo" },
+  addressPlaceholder: {
+    ar: "شارع رئيسي، رقم المبنى",
+    en: "Main Street, Building Number",
+  },
+  city: { ar: "المدينة", en: "City" },
+  selectCity: { ar: "اختر المدينة", en: "Select city" },
+  loadingCities: { ar: "جاري تحميل المدن...", en: "Loading cities..." },
   storeTypes: { ar: "نوع المتجر", en: "Store Type" },
   selectTypes: {
     ar: "اختر نوع المتجر (يمكنك اختيار أكثر من نوع)",
     en: "Select store type(s)",
+  },
+  loadingTypes: { ar: "جاري تحميل الأنواع...", en: "Loading types..." },
+  noTypesAvailable: {
+    ar: "لا توجد أنواع متاحة حالياً",
+    en: "No store types available",
   },
   note: { ar: "ملاحظات إضافية (اختياري)", en: "Additional Notes (optional)" },
   notePlaceholder: {
@@ -121,6 +122,17 @@ const t = {
 };
 
 // ============================================
+// Select classes
+// ============================================
+
+const selectClasses = cn(
+  "w-full py-3 rounded-xl bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-surface-100",
+  "placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 transition-all duration-200",
+  "disabled:opacity-50 disabled:cursor-not-allowed text-sm appearance-none",
+  "border-transparent focus:border-primary-500 dark:focus:border-primary-400 focus:ring-4 focus:ring-primary-500/15",
+);
+
+// ============================================
 // Component
 // ============================================
 
@@ -132,6 +144,14 @@ export const RegisterPage: React.FC = () => {
   const isAr = currentLanguage === "ar";
   const lang = (obj: { ar: string; en: string }) => (isAr ? obj.ar : obj.en);
 
+  // Fetch store categories from API
+  const { data: storeCategories = [], isLoading: isLoadingTypes } =
+    useStoreCategories();
+
+  // Cities state
+  const [cities, setCities] = useState<CityOption[]>([]);
+  const [isLoadingCities, setIsLoadingCities] = useState(true);
+
   const [formData, setFormData] = useState<RegisterFormData>({
     fullName: "",
     phoneNumber: "",
@@ -142,6 +162,7 @@ export const RegisterPage: React.FC = () => {
     note: "",
     acceptTerms: false,
   });
+  const [typesTouched, setTypesTouched] = useState(false);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>(
@@ -152,6 +173,45 @@ export const RegisterPage: React.FC = () => {
     {},
   );
   const [isSuccess, setIsSuccess] = useState(false);
+
+  // ============================================
+  // Fetch cities on mount
+  // ============================================
+
+  useEffect(() => {
+    const fetchCities = async () => {
+      try {
+        const response = await apiClient.get<any>("/api/public/cities");
+
+        // Handle wrapped response: { success: true, data: [...] }
+        let items: any[] = [];
+        if (response?.data && Array.isArray(response.data)) {
+          items = response.data;
+        } else if (Array.isArray(response)) {
+          items = response;
+        } else if (response?.data?.data && Array.isArray(response.data.data)) {
+          items = response.data.data;
+        }
+
+        setCities(
+          items
+            .filter((item: any) => item.isActive !== false)
+            .map((item: any) => ({
+              id: item.id,
+              nameAr: item.name || item.nameAr || "",
+              nameEn: item.name || item.nameEn || "",
+            })),
+        );
+      } catch (error) {
+        console.error("Failed to fetch cities:", error);
+        setCities([]);
+      } finally {
+        setIsLoadingCities(false);
+      }
+    };
+
+    fetchCities();
+  }, []);
 
   // ============================================
   // Handlers
@@ -176,62 +236,78 @@ export const RegisterPage: React.FC = () => {
     setTouchedFields((prev) => ({ ...prev, [field]: true }));
   };
 
-  const toggleType = (type: string) => {
+  const toggleType = (typeId: string) => {
     setSelectedTypes((prev) =>
-      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type],
+      prev.includes(typeId)
+        ? prev.filter((t) => t !== typeId)
+        : [...prev, typeId],
     );
-    if (validationErrors.phoneNumber) {
-      setValidationErrors((prev) => {
-        const u = { ...prev };
-        delete u.phoneNumber;
-        return u;
-      });
-    }
+    setTypesTouched(true);
   };
 
   const validateForm = (): boolean => {
     const errors: ValidationErrors = {};
+
     if (!formData.fullName.trim())
       errors.fullName = lang(t.validation.fullNameRequired);
     else if (formData.fullName.trim().length < 2)
       errors.fullName = lang(t.validation.fullNameMin);
+
     if (!formData.phoneNumber.trim())
       errors.phoneNumber = lang(t.validation.phoneNumberRequired);
-    else if (!/^\d{7,15}$/.test(formData.phoneNumber.trim()))
+    else if (!/^01[0-25]\d{8}$/.test(formData.phoneNumber.trim()))
       errors.phoneNumber = lang(t.validation.phoneNumberInvalid);
+
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))
       errors.email = lang(t.validation.emailInvalid);
+
     if (selectedTypes.length === 0)
       errors.phoneNumber = lang(t.validation.typesRequired);
+
     if (!formData.acceptTerms)
       errors.acceptTerms = lang(t.validation.termsRequired);
+
     setValidationErrors(errors);
+
     return Object.keys(errors).length === 0;
   };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     setTouchedFields({ fullName: true, phoneNumber: true, acceptTerms: true });
+
     if (!validateForm()) return;
+
     setIsSubmitting(true);
     setServerError(null);
 
     try {
-      await submitStoreRequest({
+      // Build the request payload matching CreateRequestDto
+      const payload = {
         name: formData.fullName.trim(),
         phoneNumber: formData.phoneNumber.trim(),
         email: formData.email.trim() || undefined,
         address: formData.address.trim() || undefined,
-        city: formData.city.trim() || undefined,
+        city: formData.city || undefined,
         prandName: formData.prandName.trim() || undefined,
         note: formData.note.trim() || undefined,
         types: selectedTypes,
-      });
+      };
+
+      console.log("🔍 Submitting store request:", payload);
+
+      await submitStoreRequest(payload);
+
       setIsSuccess(true);
       toast.success(lang(t.successTitle));
-    } catch (error) {
+    } catch (error: any) {
+      console.error("❌ Submit error:", error);
       const message =
-        error instanceof Error ? error.message : lang(t.submitting) + " failed";
+        error?.response?.data?.message ||
+        error?.message ||
+        (error instanceof Error
+          ? error.message
+          : lang(t.submitting) + " failed");
       setServerError(message);
     } finally {
       setIsSubmitting(false);
@@ -271,11 +347,7 @@ export const RegisterPage: React.FC = () => {
             </svg>
           </div>
         </div>
-        <div
-          className=
-            "text-center mb-8 text-center"
-          
-        >
+        <div className="text-center mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-surface-900 dark:text-surface-100 mb-3">
             {lang(t.successTitle)}
           </h1>
@@ -399,27 +471,43 @@ export const RegisterPage: React.FC = () => {
           >
             {lang(t.phoneNumber)}
           </label>
-          <input
-            id="reg-phone"
-            type="tel"
-            value={formData.phoneNumber}
-            onChange={(e) => handleChange("phoneNumber", e.target.value)}
-            onBlur={() => handleBlur("phoneNumber")}
-            placeholder={lang(t.phoneNumberPlaceholder)}
-            dir="ltr"
-            disabled={isSubmitting}
-            className={cn(
-              inputBaseClasses(
-                !!validationErrors.phoneNumber && !!touchedFields.phoneNumber,
-              ),
-              isAr ? "pr-4 pl-4" : "pl-4 pr-4",
-            )}
-          />
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+              <span className="text-sm font-medium text-surface-500 dark:text-surface-400">
+                +20
+              </span>
+            </div>
+            <input
+              id="reg-phone"
+              type="tel"
+              value={formData.phoneNumber}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+                handleChange("phoneNumber", digits);
+              }}
+              onBlur={() => handleBlur("phoneNumber")}
+              placeholder={lang(t.phoneNumberPlaceholder)}
+              dir="ltr"
+              disabled={isSubmitting}
+              className={cn(
+                inputBaseClasses(
+                  !!validationErrors.phoneNumber && !!touchedFields.phoneNumber,
+                ),
+                "pl-12",
+                isAr ? "pr-4" : "pr-4",
+              )}
+            />
+          </div>
           {validationErrors.phoneNumber && touchedFields.phoneNumber && (
             <p className="text-xs text-error-500 dark:text-error-400 mt-1">
               {validationErrors.phoneNumber}
             </p>
           )}
+          <p className="text-[10px] text-surface-400 dark:text-surface-500">
+            {isAr
+              ? "أدخل رقم هاتف مصري (11 أرقام بعد +20)"
+              : "Enter Egyptian phone number (11 digits after +20)"}
+          </p>
         </div>
 
         {/* Email (optional) */}
@@ -475,8 +563,78 @@ export const RegisterPage: React.FC = () => {
           />
         </div>
 
-        {/* Address + City (row) */}
+        {/* City (select) + Address (text input) */}
         <div className="grid grid-cols-2 gap-3">
+          {/* City Select */}
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-surface-700 dark:text-surface-300">
+              {lang(t.city)}
+            </label>
+            <div className="relative">
+              <select
+                value={formData.city}
+                onChange={(e) => handleChange("city", e.target.value)}
+                disabled={isSubmitting || isLoadingCities}
+                className={cn(
+                  selectClasses,
+                  isAr ? "pr-4 pl-10" : "pl-4 pr-10",
+                )}
+              >
+                <option value="">
+                  {isLoadingCities ? lang(t.loadingCities) : lang(t.selectCity)}
+                </option>
+                {cities.map((city) => (
+                  <option key={city.id} value={city.id}>
+                    {isAr ? city.nameAr : city.nameEn}
+                  </option>
+                ))}
+              </select>
+              <div
+                className={cn(
+                  "absolute inset-y-0 flex items-center pointer-events-none",
+                  isAr ? "left-0 pl-3" : "right-0 pr-3",
+                )}
+              >
+                {isLoadingCities ? (
+                  <svg
+                    className="w-4 h-4 animate-spin text-surface-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    className="w-4 h-4 text-surface-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2}
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m19.5 8.25-7.5 7.5-7.5-7.5"
+                    />
+                  </svg>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Address Input */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-surface-700 dark:text-surface-300">
               {lang(t.address)}
@@ -493,25 +651,9 @@ export const RegisterPage: React.FC = () => {
               )}
             />
           </div>
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-surface-700 dark:text-surface-300">
-              {lang(t.city)}
-            </label>
-            <input
-              type="text"
-              value={formData.city}
-              onChange={(e) => handleChange("city", e.target.value)}
-              placeholder={lang(t.cityPlaceholder)}
-              disabled={isSubmitting}
-              className={cn(
-                inputBaseClasses(false),
-                isAr ? "pr-4 pl-4" : "pl-4 pr-4",
-              )}
-            />
-          </div>
         </div>
 
-        {/* Store Types */}
+        {/* Store Types - Fetched from API */}
         <div className="space-y-2">
           <label className="block text-sm font-medium text-surface-700 dark:text-surface-300">
             {lang(t.storeTypes)}
@@ -519,27 +661,61 @@ export const RegisterPage: React.FC = () => {
           <p className="text-xs text-surface-500 dark:text-surface-400">
             {lang(t.selectTypes)}
           </p>
-          <div className="flex flex-wrap gap-2">
-            {STORE_TYPES.map((type) => {
-              const isSelected = selectedTypes.includes(type.value);
-              return (
-                <button
-                  key={type.value}
-                  type="button"
-                  onClick={() => toggleType(type.value)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-all duration-200",
-                    isSelected
-                      ? "bg-primary-100 dark:bg-primary-900/40 border-primary-500 text-primary-700 dark:text-primary-300"
-                      : "bg-surface-100 dark:bg-surface-800 border-surface-200 dark:border-surface-700 text-surface-600 dark:text-surface-400 hover:border-primary-300",
-                  )}
-                >
-                  {isAr ? type.labelAr : type.labelEn}
-                </button>
-              );
-            })}
-          </div>
-          {selectedTypes.length === 0 && touchedFields.phoneNumber && (
+
+          {isLoadingTypes ? (
+            <div className="flex items-center gap-2 py-3">
+              <svg
+                className="w-4 h-4 animate-spin text-primary-500"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                />
+              </svg>
+              <span className="text-xs text-surface-500 dark:text-surface-400">
+                {lang(t.loadingTypes)}
+              </span>
+            </div>
+          ) : storeCategories.length === 0 ? (
+            <p className="text-xs text-surface-500 dark:text-surface-400 py-2">
+              {lang(t.noTypesAvailable)}
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {storeCategories.map((category) => {
+                const isSelected = selectedTypes.includes(category.id);
+                return (
+                  <button
+                    key={category.id}
+                    type="button"
+                    onClick={() => toggleType(category.id)}
+                    disabled={isSubmitting}
+                    className={cn(
+                      "px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-all duration-200",
+                      isSelected
+                        ? "bg-primary-100 dark:bg-primary-900/40 border-primary-500 text-primary-700 dark:text-primary-300"
+                        : "bg-surface-100 dark:bg-surface-800 border-surface-200 dark:border-surface-700 text-surface-600 dark:text-surface-400 hover:border-primary-300",
+                    )}
+                  >
+                    {isAr ? category.nameAr : category.nameEn}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {selectedTypes.length === 0 && typesTouched && (
             <p className="text-xs text-error-500 dark:text-error-400">
               {lang(t.validation.typesRequired)}
             </p>

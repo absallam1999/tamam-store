@@ -104,20 +104,68 @@ function normalizeOrder(raw: any): StoreOrderDto {
     customerName: raw.customerName || "",
     customerPhone: raw.customerPhone || "",
     status: apiToFrontendStatus(raw.status || "Pending"),
-    items: (raw.items || []).map((item: any) => ({
-      productId: item.productId || item.id || "",
-      productName:
-        item.productNameEn ||
-        item.productName ||
-        item.nameEn ||
-        item.name ||
-        "Product",
-      productNameAr: item.productNameAr || item.nameAr || null,
-      productNameEn: item.productNameEn || item.nameEn || null,
-      quantity: Number(item.quantity) || 1,
-      unitPrice: Number(item.unitPrice || item.price) || 0,
-      options: item.options || item.selectedOptions || "",
-    })),
+    items: (raw.items || []).map((item: any) => {
+      // Try multiple possible option field names
+      let options = null;
+
+      // Check all possible API field names for options
+      if (item.selectedOptions) {
+        options = item.selectedOptions;
+      } else if (item.options) {
+        options = item.options;
+      } else if (item.optionGroups) {
+        options = item.optionGroups;
+      } else if (item.orderItemOptions) {
+        options = item.orderItemOptions;
+      } else if (item.productOptions) {
+        options = item.productOptions;
+      } else if (item.variations) {
+        options = item.variations;
+      } else if (item.customizations) {
+        options = item.customizations;
+      } else if (item.selectedOptionValues) {
+        options = item.selectedOptionValues;
+      } else if (item.optionValues) {
+        options = item.optionValues;
+      }
+
+      // If options is a string, try to parse it
+      if (typeof options === "string" && options.trim()) {
+        try {
+          const parsed = JSON.parse(options);
+          options = parsed;
+        } catch {
+          // Keep as string if parsing fails
+          options = [{ valueName: options }];
+        }
+      }
+
+      // If options is empty array or empty string, set to null
+      if (
+        options === "" ||
+        (Array.isArray(options) && options.length === 0) ||
+        (typeof options === "object" &&
+          options !== null &&
+          Object.keys(options).length === 0)
+      ) {
+        options = null;
+      }
+
+      return {
+        productId: item.productId || item.id || "",
+        productName:
+          item.productNameEn ||
+          item.productName ||
+          item.nameEn ||
+          item.name ||
+          "Product",
+        productNameAr: item.productNameAr || item.nameAr || null,
+        productNameEn: item.productNameEn || item.nameEn || null,
+        quantity: Number(item.quantity) || 1,
+        unitPrice: Number(item.unitPrice || item.price) || 0,
+        options: options,
+      };
+    }),
     totalAmount: Number(raw.totalAmount || raw.total) || 0,
     deliveryFee: Number(raw.deliveryFee) || 0,
     discount: Number(raw.discount) || 0,
@@ -294,6 +342,22 @@ export const useRejectOrder = () => {
       reason?: string;
     }) => {
       await storeApi.rejectOrder(orderId, reason);
+    },
+    onSuccess: (_, variables) => invalidate(variables.orderId),
+  });
+};
+
+export const useCancelOrder = () => {
+  const invalidate = useInvalidateOrderQueries();
+  return useMutation({
+    mutationFn: async ({
+      orderId,
+      reason,
+    }: {
+      orderId: string;
+      reason: string;
+    }) => {
+      await storeApi.cancelOrder(orderId, reason);
     },
     onSuccess: (_, variables) => invalidate(variables.orderId),
   });

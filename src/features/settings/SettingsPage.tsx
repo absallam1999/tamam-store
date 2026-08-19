@@ -13,7 +13,6 @@ import {
   useUpdateCover,
 } from "@shared/hooks/useStoreProfile";
 import {
-  useStoreTypes,
   useAvailableStoreTypes,
   useAddStoreType,
   useRemoveStoreType,
@@ -243,20 +242,32 @@ const StoreTypesSection: React.FC<{
   store: any;
   isAr: boolean;
   lang: (obj: { ar: string; en: string }) => string;
-}> = ({ store, isAr, lang }) => {
+  onTypesChanged?: () => void;
+}> = ({ store, isAr, lang, onTypesChanged }) => {
   const toast = useToast();
-  const { data: storeTypes = [], refetch: refetchStoreTypes } = useStoreTypes();
+
+  // Available types for the store (no category needed)
   const { data: availableTypes = [], isLoading: typesLoading } =
     useAvailableStoreTypes();
+
   const addStoreType = useAddStoreType();
   const removeStoreType = useRemoveStoreType();
+
   const [selectedTypeId, setSelectedTypeId] = useState<string>("");
   const [isAdding, setIsAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  // Get approved and pending types from store profile
+  // Use profile data directly — it already contains approved/pending types
   const approvedTypes = (store as any)?.approvedTypes || [];
   const pendingTypes = (store as any)?.pendingTypes || [];
+
+  const getMappingId = (type: any): string => {
+    return type?.storeTypeMappingId || type?.mappingId || type?.id || "";
+  };
+
+  const getTypeName = (type: any) => {
+    return isAr ? type.nameAr || type.nameEn : type.nameEn || type.nameAr;
+  };
 
   const handleAddType = async () => {
     if (!selectedTypeId) {
@@ -271,8 +282,7 @@ const StoreTypesSection: React.FC<{
       await addStoreType.mutateAsync(selectedTypeId);
       toast.success(lang(t.typeAdded));
       setSelectedTypeId("");
-      // Refetch store types and profile
-      refetchStoreTypes();
+      onTypesChanged?.();
     } catch (error) {
       toast.error(lang(t.saveError));
     } finally {
@@ -280,25 +290,24 @@ const StoreTypesSection: React.FC<{
     }
   };
 
-  const handleRemoveType = async (mappingId: string) => {
+  const handleRemoveType = async (type: any) => {
+    const mappingId = getMappingId(type);
+    if (!mappingId || mappingId === "undefined") {
+      console.error("Invalid mapping object:", type);
+      toast.error(isAr ? "معرف غير صالح" : "Invalid mapping id");
+      return;
+    }
+
     setRemovingId(mappingId);
     try {
       await removeStoreType.mutateAsync(mappingId);
       toast.success(lang(t.typeRemoved));
-      refetchStoreTypes();
+      onTypesChanged?.();
     } catch (error) {
       toast.error(lang(t.saveError));
     } finally {
       setRemovingId(null);
     }
-  };
-
-  const getTypeName = (type: any) => {
-    return isAr ? type.nameAr || type.nameEn : type.nameEn || type.nameAr;
-  };
-
-  const getTypeDescription = (type: any) => {
-    return isAr ? type.descriptionAr : type.descriptionEn;
   };
 
   return (
@@ -321,25 +330,20 @@ const StoreTypesSection: React.FC<{
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {approvedTypes.map((type: any) => (
               <div
-                key={type.id}
+                key={getMappingId(type) || type.storeTypeId}
                 className="flex items-center justify-between p-4 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-200 dark:border-surface-700"
               >
                 <div>
                   <p className="text-sm font-medium text-surface-900 dark:text-white">
                     {getTypeName(type)}
                   </p>
-                  {getTypeDescription(type) && (
-                    <p className="text-xs text-surface-500 dark:text-surface-400">
-                      {getTypeDescription(type)}
-                    </p>
-                  )}
                 </div>
                 <button
-                  onClick={() => handleRemoveType(type.mappingId || type.id)}
-                  disabled={removingId === (type.mappingId || type.id)}
+                  onClick={() => handleRemoveType(type)}
+                  disabled={removingId === getMappingId(type)}
                   className="px-3 py-1.5 rounded-lg text-xs font-medium text-error-600 hover:bg-error-50 dark:text-error-400 dark:hover:bg-error-500/10 transition-colors disabled:opacity-50"
                 >
-                  {removingId === (type.mappingId || type.id) ? (
+                  {removingId === getMappingId(type) ? (
                     <svg
                       className="w-4 h-4 animate-spin"
                       fill="none"
@@ -381,7 +385,7 @@ const StoreTypesSection: React.FC<{
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {pendingTypes.map((type: any) => (
               <div
-                key={type.id}
+                key={getMappingId(type) || type.storeTypeId}
                 className="flex items-center justify-between p-4 rounded-xl bg-warning-50 dark:bg-warning-500/5 border border-warning-200 dark:border-warning-500/20"
               >
                 <div>
@@ -392,9 +396,40 @@ const StoreTypesSection: React.FC<{
                     {isAr ? "قيد المراجعة" : "Pending approval"}
                   </p>
                 </div>
-                <span className="px-2.5 py-1 rounded-full text-[10px] font-medium bg-warning-100 text-warning-700 dark:bg-warning-500/20 dark:text-warning-400">
-                  {isAr ? "مراجعة" : "Pending"}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-medium bg-warning-100 text-warning-700 dark:bg-warning-500/20 dark:text-warning-400">
+                    {isAr ? "مراجعة" : "Pending"}
+                  </span>
+                  <button
+                    onClick={() => handleRemoveType(type)}
+                    disabled={removingId === getMappingId(type)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-error-600 hover:bg-error-50 dark:text-error-400 dark:hover:bg-error-500/10 transition-colors disabled:opacity-50"
+                  >
+                    {removingId === getMappingId(type) ? (
+                      <svg
+                        className="w-4 h-4 animate-spin"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                        />
+                      </svg>
+                    ) : (
+                      lang(t.removeStoreType)
+                    )}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -419,17 +454,17 @@ const StoreTypesSection: React.FC<{
             )}
             disabled={typesLoading || isAdding}
           >
-            <option value="">{lang(t.selectStoreType)}</option>
+            <option value="">
+              {typesLoading
+                ? isAr
+                  ? "جاري التحميل..."
+                  : "Loading..."
+                : lang(t.selectStoreType)}
+            </option>
             {availableTypes.map((type) => {
-              // Check if type is already approved or pending
-              const isAlreadyAdded =
-                approvedTypes.some(
-                  (t: any) => t.storeTypeId === type.id || t.id === type.id,
-                ) ||
-                pendingTypes.some(
-                  (t: any) => t.storeTypeId === type.id || t.id === type.id,
-                );
-
+              const isAlreadyAdded = [...approvedTypes, ...pendingTypes].some(
+                (t: any) => t.storeTypeId === type.id,
+              );
               return (
                 <option key={type.id} value={type.id} disabled={isAlreadyAdded}>
                   {isAr
@@ -440,6 +475,7 @@ const StoreTypesSection: React.FC<{
               );
             })}
           </select>
+
           <button
             onClick={handleAddType}
             disabled={!selectedTypeId || isAdding || typesLoading}
@@ -526,7 +562,7 @@ const getFixedImageUrl = (
 // ============================================
 
 export const SettingsPage: React.FC = () => {
-  const { data: store, isLoading } = useStoreProfile();
+  const { data: store, isLoading, refetch: refetchProfile } = useStoreProfile();
   const updateProfile = useUpdateStoreProfile();
   const {
     theme: themeMode,
@@ -550,6 +586,12 @@ export const SettingsPage: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [isUploadingCover, setIsUploadingCover] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === "storeTypes") {
+      refetchProfile();
+    }
+  }, [activeTab, refetchProfile]);
 
   const [profile, setProfile] = useState<StoreProfileForm>({
     nameAr: "",
@@ -1767,8 +1809,15 @@ export const SettingsPage: React.FC = () => {
               </p>
             </div>
           </div>
-
-          <StoreTypesSection store={store} isAr={isAr} lang={lang} />
+          <StoreTypesSection
+            store={store}
+            isAr={isAr}
+            lang={lang}
+            onTypesChanged={() => {
+              refetchProfile();
+              refreshStore();
+            }}
+          />
         </div>
       )}
 

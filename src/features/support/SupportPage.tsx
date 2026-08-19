@@ -103,20 +103,20 @@ const SkeletonLoader: React.FC<{ isAr: boolean }> = ({ isAr }) => {
   const isRTL = isAr;
 
   return (
-    <div className="h-[calc(100vh-80px)] flex flex-col bg-white dark:bg-surface-900 rounded-2xl overflow-hidden border border-surface-200 dark:border-surface-800">
+    <div className="h-[calc(100dvh-80px)] flex flex-col bg-white dark:bg-surface-900 rounded-2xl overflow-hidden border border-surface-200 dark:border-surface-800">
       {/* Header Skeleton */}
-      <div className="flex items-center justify-between px-6 py-5 border-b border-surface-200 dark:border-surface-800 bg-surface-50/50 dark:bg-surface-900/50">
+      <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-surface-200 dark:border-surface-800 bg-surface-50/50 dark:bg-surface-900/50">
         <div className="space-y-2">
-          <div className="skeleton h-7 w-40 rounded-lg" />
-          <div className="skeleton h-4 w-56 rounded-lg" />
+          <div className="skeleton h-6 w-32 rounded-lg" />
+          <div className="skeleton h-4 w-48 rounded-lg" />
         </div>
-        <div className="skeleton h-10 w-36 rounded-xl" />
+        <div className="skeleton h-10 w-28 sm:w-36 rounded-xl" />
       </div>
 
       {/* Main Content Skeleton */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Ticket List Skeleton */}
-        <div className="w-80 border-l border-surface-200 dark:border-surface-800 bg-surface-50/30 dark:bg-surface-900/30 p-4">
+        {/* Ticket List Skeleton (hidden on mobile if no selection) */}
+        <div className="hidden md:flex w-80 flex-col border-l border-surface-200 dark:border-surface-800 bg-surface-50/30 dark:bg-surface-900/30 p-4">
           <div className="flex items-center justify-between mb-4">
             <div className="skeleton h-4 w-28 rounded-lg" />
             <div className="skeleton h-4 w-8 rounded-lg" />
@@ -141,23 +141,20 @@ const SkeletonLoader: React.FC<{ isAr: boolean }> = ({ isAr }) => {
 
         {/* Chat Area Skeleton */}
         <div className="flex-1 flex flex-col bg-white dark:bg-surface-900">
-          {/* Chat Header Skeleton */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-surface-200 dark:border-surface-800 bg-surface-50/30 dark:bg-surface-900/30">
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-surface-200 dark:border-surface-800 bg-surface-50/30 dark:bg-surface-900/30">
             <div className="flex items-center gap-3">
               <div className="skeleton w-10 h-10 rounded-full" />
               <div className="space-y-1.5">
-                <div className="skeleton h-4 w-48 rounded-lg" />
+                <div className="skeleton h-4 w-40 sm:w-48 rounded-lg" />
                 <div className="flex items-center gap-2">
                   <div className="skeleton h-5 w-20 rounded-lg" />
                   <div className="skeleton h-5 w-20 rounded-lg" />
                 </div>
               </div>
             </div>
-            <div className="skeleton h-4 w-20 rounded-lg" />
+            <div className="skeleton h-4 w-16 rounded-lg" />
           </div>
-
-          {/* Messages Skeleton */}
-          <div className="flex-1 px-6 py-4 space-y-4 bg-surface-50/30 dark:bg-surface-900/30">
+          <div className="flex-1 px-4 sm:px-6 py-4 space-y-4 bg-surface-50/30 dark:bg-surface-900/30">
             {[1, 2, 3, 4].map((i) => (
               <div
                 key={i}
@@ -167,25 +164,18 @@ const SkeletonLoader: React.FC<{ isAr: boolean }> = ({ isAr }) => {
                 )}
               >
                 <div className="skeleton w-9 h-9 rounded-full flex-shrink-0" />
-                <div
-                  className={cn(
-                    "max-w-[70%] space-y-1.5",
-                    i % 2 === 0 ? "items-start" : "items-end",
-                  )}
-                >
-                  <div className="skeleton h-12 w-56 rounded-2xl" />
+                <div className="max-w-[70%] space-y-1.5">
+                  <div className="skeleton h-12 w-48 sm:w-56 rounded-2xl" />
                   <div className="skeleton h-3 w-14 rounded-lg" />
                 </div>
               </div>
             ))}
           </div>
-
-          {/* Message Input Skeleton */}
           <div className="border-t border-surface-200 dark:border-surface-800 px-4 py-3 bg-white dark:bg-surface-900">
             <div className="flex items-end gap-2">
               <div className="skeleton w-10 h-10 rounded-xl flex-shrink-0" />
               <div className="skeleton flex-1 h-12 rounded-xl" />
-              <div className="skeleton w-24 h-10 rounded-xl flex-shrink-0" />
+              <div className="skeleton w-20 sm:w-24 h-10 rounded-xl flex-shrink-0" />
             </div>
           </div>
         </div>
@@ -322,7 +312,7 @@ const StatusBadge: React.FC<{ status: string; isAr: boolean }> = ({
 };
 
 // ============================================================
-// Message Bubble - Modern & Clean
+// Message Bubble
 // ============================================================
 
 const MessageBubble: React.FC<{
@@ -447,25 +437,21 @@ export const SupportPage: React.FC = () => {
     (t) => t.id === selectedTicketId,
   );
 
-  // Refetch messages when a ticket is selected
   useEffect(() => {
-    if (selectedTicketId) {
-      refetchMessages();
-    }
+    if (selectedTicketId) refetchMessages();
   }, [selectedTicketId, refetchMessages]);
 
-  // Scroll to bottom when messages change
   useEffect(() => {
     if (messagesEndRef.current) {
-      setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      }, 100);
+      setTimeout(
+        () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }),
+        100,
+      );
     }
   }, [messages]);
 
   const handleSendMessage = useCallback(async () => {
     if (!newMessage.trim() || !selectedTicketId || isSending) return;
-
     setIsSending(true);
     try {
       await sendMessage.mutateAsync({
@@ -474,16 +460,10 @@ export const SupportPage: React.FC = () => {
       });
       setNewMessage("");
       textareaRef.current?.focus();
-
-      // Refetch messages to get the updated list
       await refetchMessages();
-      // Also refetch tickets to update the last message preview
       await refetchTickets();
-    } catch (error) {
-      console.error("Send message error:", error);
-      toast.error(isAr ? "فشل إرسال الرسالة" : "Failed to send message", {
-        description: isAr ? "يرجى المحاولة مرة أخرى" : "Please try again",
-      });
+    } catch {
+      toast.error(isAr ? "فشل إرسال الرسالة" : "Failed to send message");
     } finally {
       setIsSending(false);
     }
@@ -501,7 +481,6 @@ export const SupportPage: React.FC = () => {
   const handleCreateTicket = useCallback(async () => {
     if (!newTicketSubject.trim() || !newTicketMessage.trim() || isCreating)
       return;
-
     setIsCreating(true);
     try {
       const ticket = await createTicket.mutateAsync({
@@ -516,41 +495,16 @@ export const SupportPage: React.FC = () => {
       setNewTicketPriority("Medium");
       setSelectedOrderId("");
       setSelectedTicketId(ticket.id);
-
       await refetchTickets();
       await refetchMessages();
-
       toast.success(
         isAr ? "تم إنشاء التذكرة بنجاح" : "Ticket created successfully",
-        {
-          description: isAr
-            ? "سيتم الرد عليك قريباً"
-            : "You will be responded to shortly",
-        },
       );
     } catch (err: any) {
-      let errorMessage = isAr ? "فشل إنشاء التذكرة" : "Failed to create ticket";
-      let errorDescription = isAr
-        ? "يرجى المحاولة مرة أخرى"
-        : "Please try again";
-
-      if (err?.response?.data) {
-        const responseData = err.response.data;
-        errorMessage =
-          responseData?.Message || responseData?.message || errorMessage;
-        if (
-          errorMessage.includes("DbUpdateException") ||
-          errorMessage.includes("database")
-        ) {
-          errorDescription = isAr
-            ? "تأكّد من اكتمال بيانات متجرك. إذا استمرت المشكلة، تواصل مع الدعم."
-            : "Make sure your store profile is complete. If the issue persists, contact support.";
-        }
-      } else if (err?.message) {
-        errorMessage = err.message;
-      }
-
-      toast.error(errorMessage, { description: errorDescription });
+      toast.error(
+        err?.message ||
+          (isAr ? "فشل إنشاء التذكرة" : "Failed to create ticket"),
+      );
     } finally {
       setIsCreating(false);
     }
@@ -577,7 +531,6 @@ export const SupportPage: React.FC = () => {
     [handleSendMessage],
   );
 
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -586,24 +539,22 @@ export const SupportPage: React.FC = () => {
     }
   }, [newMessage]);
 
-  if (ticketsLoading) {
-    return <SkeletonLoader isAr={isAr} />;
-  }
+  if (ticketsLoading) return <SkeletonLoader isAr={isAr} />;
 
   return (
     <div
       className={cn(
-        "h-[calc(100vh-80px)] flex flex-col bg-white dark:bg-surface-900 rounded-2xl overflow-hidden border border-surface-200 dark:border-surface-800",
+        "h-[calc(100dvh-80px)] flex flex-col bg-white dark:bg-surface-900 rounded-2xl overflow-hidden border border-surface-200 dark:border-surface-800",
         isRTL ? "text-right" : "text-left",
       )}
       dir={isRTL ? "rtl" : "ltr"}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-surface-200 dark:border-surface-800 bg-gradient-to-r from-surface-50/80 to-surface-100/50 dark:from-surface-900/80 dark:to-surface-800/50 backdrop-blur-sm">
+      <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-surface-200 dark:border-surface-800 bg-gradient-to-r from-surface-50/80 to-surface-100/50 dark:from-surface-900/80 dark:to-surface-800/50">
         <div>
-          <h1 className="text-xl font-bold text-surface-900 dark:text-white flex items-center gap-2">
+          <h1 className="text-lg sm:text-xl font-bold text-surface-900 dark:text-white flex items-center gap-2">
             <svg
-              className="w-6 h-6 text-primary-500"
+              className="w-5 sm:w-6 h-5 sm:h-6 text-primary-500"
               fill="none"
               viewBox="0 0 24 24"
               strokeWidth={2}
@@ -617,13 +568,13 @@ export const SupportPage: React.FC = () => {
             </svg>
             {lang("title", isAr)}
           </h1>
-          <p className="text-sm text-surface-500 dark:text-surface-400 mt-0.5">
+          <p className="text-xs sm:text-sm text-surface-500 dark:text-surface-400 mt-0.5">
             {lang("subtitle", isAr)}
           </p>
         </div>
         <button
           onClick={() => setShowNewTicket(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 active:scale-95 transition-all duration-200 shadow-lg shadow-primary-500/20"
+          className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-xl bg-primary-600 text-white text-xs sm:text-sm font-medium hover:bg-primary-700 active:scale-95 transition-all duration-200 shadow-lg shadow-primary-500/20"
         >
           <svg
             className="w-4 h-4"
@@ -638,7 +589,8 @@ export const SupportPage: React.FC = () => {
               d="M12 4.5v15m7.5-7.5h-15"
             />
           </svg>
-          {lang("newTicket", isAr)}
+          <span className="hidden sm:inline">{lang("newTicket", isAr)}</span>
+          <span className="sm:hidden">{isAr ? "جديد" : "New"}</span>
         </button>
       </div>
 
@@ -647,12 +599,13 @@ export const SupportPage: React.FC = () => {
         {/* Ticket List */}
         <div
           className={cn(
-            "w-80 border-l border-surface-200 dark:border-surface-800 overflow-y-auto flex-shrink-0 bg-surface-50/30 dark:bg-surface-900/30",
-            isRTL ? "border-l-0 border-r" : "border-r-0 border-l",
+            "w-full md:w-80 flex-shrink-0 overflow-y-auto bg-surface-50/30 dark:bg-surface-900/30 border-l border-surface-200 dark:border-surface-800",
+            selectedTicket ? "hidden md:flex md:flex-col" : "flex flex-col",
+            isRTL ? "md:border-l-0 md:border-r" : "md:border-r-0 md:border-l",
           )}
         >
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-4">
+          <div className="p-3 sm:p-4">
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
               <span className="text-xs font-semibold text-surface-500 dark:text-surface-400 uppercase tracking-wider">
                 {lang("myTickets", isAr)}
               </span>
@@ -663,33 +616,25 @@ export const SupportPage: React.FC = () => {
 
             {tickets && tickets.length > 0 ? (
               <div className="space-y-2">
-                {(tickets as Ticket[])?.map((ticket) => {
+                {tickets.map((ticket) => {
                   const isActive = ticket.id === selectedTicketId;
                   const lastMessage =
                     ticket.messages?.[ticket.messages.length - 1];
-
                   return (
                     <button
                       key={ticket.id}
                       onClick={() => setSelectedTicketId(ticket.id)}
                       className={cn(
-                        "w-full text-left p-4 rounded-xl transition-all duration-200",
+                        "w-full text-left p-3 sm:p-4 rounded-xl transition-all duration-200",
                         isActive
-                          ? "bg-primary-50 dark:bg-primary-500/10 border-2 border-primary-500/30 dark:border-primary-500/30 shadow-sm shadow-primary-500/5"
+                          ? "bg-primary-50 dark:bg-primary-500/10 border-2 border-primary-500/30 dark:border-primary-500/30 shadow-sm"
                           : "hover:bg-surface-100 dark:hover:bg-surface-800 border-2 border-transparent",
                         isRTL && "text-right",
                       )}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <p
-                            className={cn(
-                              "text-sm font-medium truncate",
-                              isActive
-                                ? "text-primary-700 dark:text-primary-400"
-                                : "text-surface-900 dark:text-white",
-                            )}
-                          >
+                          <p className="text-sm font-medium truncate">
                             {ticket.subject}
                           </p>
                           {lastMessage && (
@@ -707,7 +652,7 @@ export const SupportPage: React.FC = () => {
                         </div>
                         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                           <StatusBadge status={ticket.status} isAr={isAr} />
-                          <span className="text-[10px] text-surface-400 font-medium">
+                          <span className="text-[10px] text-surface-400">
                             {formatTime(ticket.updatedAt)}
                           </span>
                         </div>
@@ -736,9 +681,6 @@ export const SupportPage: React.FC = () => {
                 <p className="text-sm font-medium text-surface-500 dark:text-surface-400">
                   {lang("noTickets", isAr)}
                 </p>
-                <p className="text-xs text-surface-400 dark:text-surface-500 mt-0.5">
-                  {lang("noTicketsDesc", isAr)}
-                </p>
                 <button
                   onClick={() => setShowNewTicket(true)}
                   className="mt-4 px-5 py-2.5 rounded-xl bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors shadow-lg shadow-primary-500/20"
@@ -751,23 +693,43 @@ export const SupportPage: React.FC = () => {
         </div>
 
         {/* Chat Area */}
-        <div className="flex-1 flex flex-col bg-white dark:bg-surface-900">
+        <div
+          className={cn(
+            "flex-1 flex flex-col bg-white dark:bg-surface-900",
+            selectedTicket ? "flex" : "hidden md:flex",
+          )}
+        >
           {selectedTicket ? (
             <>
-              {/* Chat Header */}
-              <div className="flex items-center justify-between px-6 py-4 border-b border-surface-200 dark:border-surface-800 bg-gradient-to-r from-surface-50/50 to-surface-100/30 dark:from-surface-900/50 dark:to-surface-800/30">
-                <div
-                  className={cn(
-                    "flex items-center gap-3",
-                    isRTL && "flex-row-reverse",
-                  )}
-                >
+              {/* Chat Header with back button on mobile */}
+              <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-surface-200 dark:border-surface-800 bg-gradient-to-r from-surface-50/50 to-surface-100/30 dark:from-surface-900/50 dark:to-surface-800/30">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                  <button
+                    onClick={() => setSelectedTicketId(null)}
+                    className="md:hidden p-2 rounded-xl text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800"
+                    aria-label={lang("back", isAr)}
+                  >
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={2}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d={
+                          isRTL
+                            ? "M8.25 4.5l7.5 7.5-7.5 7.5"
+                            : "M15.75 19.5 8.25 12l7.5-7.5"
+                        }
+                      />
+                    </svg>
+                  </button>
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-100 to-primary-200 dark:from-primary-500/20 dark:to-primary-600/20 flex items-center justify-center shadow-lg shadow-primary-500/10 flex-shrink-0">
                     <svg
-                      className={cn(
-                        "w-6 h-6 text-primary-500 transition-transform duration-200",
-                        isRTL && "scale-x-[-1]",
-                      )}
+                      className="w-6 h-6 text-primary-500"
                       fill="none"
                       viewBox="0 0 24 24"
                       strokeWidth={2}
@@ -780,34 +742,24 @@ export const SupportPage: React.FC = () => {
                       />
                     </svg>
                   </div>
-                  <div
-                    className={cn(
-                      "flex-1 min-w-0",
-                      isRTL ? "text-right" : "text-left",
-                    )}
-                  >
-                    <p className="text-sm font-semibold text-surface-900 dark:text-white">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-surface-900 dark:text-white truncate">
                       {selectedTicket.subject}
                     </p>
-                    <div
-                      className={cn(
-                        "flex items-center gap-2 mt-0.5 flex-wrap",
-                        isRTL ? "flex-row-reverse" : "flex-row",
-                      )}
-                    >
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <StatusBadge status={selectedTicket.status} isAr={isAr} />
                       <PriorityBadge
                         priority={selectedTicket.priority}
                         isAr={isAr}
                       />
-                      <span className="text-[10px] text-surface-400">
+                      <span className="text-[10px] text-surface-400 hidden sm:inline">
                         • {lang("created", isAr)}{" "}
                         {formatDate(selectedTicket.createdAt)}
                       </span>
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
                   <span className="flex items-center gap-1.5 text-xs text-surface-500 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-full">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                     {lang("online", isAr)}
@@ -816,7 +768,7 @@ export const SupportPage: React.FC = () => {
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 bg-gradient-to-b from-surface-50/30 to-white dark:from-surface-900/30 dark:to-surface-900">
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 bg-gradient-to-b from-surface-50/30 to-white dark:from-surface-900/30 dark:to-surface-900">
                 {messagesLoading ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="flex items-center gap-3 text-surface-500 dark:text-surface-400">
@@ -844,8 +796,8 @@ export const SupportPage: React.FC = () => {
                       </span>
                     </div>
                   </div>
-                ) : messages && messages.length > 0 ? (
-                  messages.map((msg: SupportMessageDto, idx: number) => (
+                ) : messages.length > 0 ? (
+                  messages.map((msg, idx) => (
                     <MessageBubble
                       key={msg.id || idx}
                       message={msg}
@@ -882,7 +834,7 @@ export const SupportPage: React.FC = () => {
               </div>
 
               {/* Message Input */}
-              <div className="border-t border-surface-200 dark:border-surface-800 px-4 py-3 bg-white dark:bg-surface-900">
+              <div className="border-t border-surface-200 dark:border-surface-800 px-3 sm:px-4 py-3 bg-white dark:bg-surface-900">
                 <div className="flex items-end gap-2">
                   <button
                     onClick={() => fileInputRef.current?.click()}
@@ -916,7 +868,7 @@ export const SupportPage: React.FC = () => {
                     onKeyDown={handleKeyDown}
                     placeholder={lang("typeMessage", isAr)}
                     className={cn(
-                      "flex-1 resize-none rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all min-h-[44px] max-h-32",
+                      "flex-1 resize-none rounded-xl px-3 sm:px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all min-h-[44px] max-h-32",
                       isRTL && "text-right",
                     )}
                     rows={1}
@@ -925,10 +877,7 @@ export const SupportPage: React.FC = () => {
                   <button
                     onClick={handleSendMessage}
                     disabled={!newMessage.trim() || isSending}
-                    className={cn(
-                      "px-5 py-2.5 rounded-xl text-sm font-medium transition-all bg-primary-600 text-white hover:bg-primary-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0 shadow-lg shadow-primary-500/20",
-                      isSending && "opacity-70",
-                    )}
+                    className="px-4 sm:px-5 py-2.5 rounded-xl text-sm font-medium transition-all bg-primary-600 text-white hover:bg-primary-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0 shadow-lg shadow-primary-500/20"
                   >
                     {isSending ? (
                       <>
@@ -1028,9 +977,9 @@ export const SupportPage: React.FC = () => {
             className="w-full max-w-lg rounded-2xl overflow-hidden animate-fade-in-scale bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-6 py-4 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between bg-gradient-to-r from-surface-50/80 to-surface-100/50 dark:from-surface-900/80 dark:to-surface-800/50">
+            <div className="px-4 sm:px-6 py-4 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between bg-gradient-to-r from-surface-50/80 to-surface-100/50 dark:from-surface-900/80 dark:to-surface-800/50">
               <div className={cn(isRTL && "text-right")}>
-                <h3 className="text-lg font-bold text-surface-900 dark:text-white">
+                <h3 className="text-base sm:text-lg font-bold text-surface-900 dark:text-white">
                   {lang("newTicket", isAr)}
                 </h3>
                 <p className="text-xs text-surface-500 dark:text-surface-400">
@@ -1058,7 +1007,7 @@ export const SupportPage: React.FC = () => {
                 </svg>
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-4 sm:p-6 space-y-4">
               {/* Subject */}
               <div className={cn("space-y-1.5", isRTL && "text-right")}>
                 <label className="block text-xs font-medium text-surface-700 dark:text-surface-300">
@@ -1069,14 +1018,10 @@ export const SupportPage: React.FC = () => {
                   value={newTicketSubject}
                   onChange={(e) => setNewTicketSubject(e.target.value)}
                   placeholder={lang("subjectPlaceholder", isAr)}
-                  className={cn(
-                    "w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all",
-                    isRTL ? "text-right" : "text-left",
-                  )}
+                  className="w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all"
                 />
               </div>
-
-              {/* Order Selection (Optional) */}
+              {/* Order Selection */}
               <div className={cn("space-y-1.5", isRTL && "text-right")}>
                 <label className="block text-xs font-medium text-surface-700 dark:text-surface-300">
                   {isAr ? "مرتبط بطلب (اختياري)" : "Related Order (Optional)"}
@@ -1084,10 +1029,7 @@ export const SupportPage: React.FC = () => {
                 <select
                   value={selectedOrderId}
                   onChange={(e) => setSelectedOrderId(e.target.value)}
-                  className={cn(
-                    "w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all",
-                    isRTL && "text-right",
-                  )}
+                  className="w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all"
                 >
                   <option value="">
                     {isAr
@@ -1101,7 +1043,6 @@ export const SupportPage: React.FC = () => {
                   ))}
                 </select>
               </div>
-
               {/* Priority */}
               <div className={cn("space-y-1.5", isRTL && "text-right")}>
                 <label className="block text-xs font-medium text-surface-700 dark:text-surface-300">
@@ -1110,10 +1051,7 @@ export const SupportPage: React.FC = () => {
                 <select
                   value={newTicketPriority}
                   onChange={(e) => setNewTicketPriority(e.target.value)}
-                  className={cn(
-                    "w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all",
-                    isRTL && "text-right",
-                  )}
+                  className="w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all"
                 >
                   <option value="Low">{lang("low", isAr)}</option>
                   <option value="Medium">{lang("medium", isAr)}</option>
@@ -1121,7 +1059,6 @@ export const SupportPage: React.FC = () => {
                   <option value="Urgent">{lang("urgent", isAr)}</option>
                 </select>
               </div>
-
               {/* Message */}
               <div className={cn("space-y-1.5", isRTL && "text-right")}>
                 <label className="block text-xs font-medium text-surface-700 dark:text-surface-300">
@@ -1132,13 +1069,9 @@ export const SupportPage: React.FC = () => {
                   onChange={(e) => setNewTicketMessage(e.target.value)}
                   placeholder={lang("messagePlaceholder", isAr)}
                   rows={4}
-                  className={cn(
-                    "w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all resize-none",
-                    isRTL ? "text-right" : "text-left",
-                  )}
+                  className="w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all resize-none"
                 />
               </div>
-
               {/* Buttons */}
               <div className="flex gap-3 pt-2">
                 <button
@@ -1155,9 +1088,7 @@ export const SupportPage: React.FC = () => {
                     !newTicketMessage.trim() ||
                     isCreating
                   }
-                  className={cn(
-                    "flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-primary-600 text-white hover:bg-primary-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-lg shadow-primary-500/20",
-                  )}
+                  className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-primary-600 text-white hover:bg-primary-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-lg shadow-primary-500/20"
                 >
                   {isCreating ? (
                     <>

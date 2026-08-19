@@ -10,6 +10,7 @@ import {
   useUpdateOrderStatus,
   useReadyForDriver,
   usePickedUpOrder,
+  useCancelOrder,
 } from "@/shared/hooks/useStoreOrders";
 import { useState } from "react";
 
@@ -69,7 +70,7 @@ const safeFormatTime = (
 };
 
 // ============================================
-// Translations (unchanged)
+// Translations
 // ============================================
 
 const t = {
@@ -113,6 +114,32 @@ const t = {
   },
   confirmReject: { ar: "تأكيد الرفض", en: "Confirm Rejection" },
   cancel: { ar: "إلغاء", en: "Cancel" },
+  cancelOrder: { ar: "إلغاء الطلب", en: "Cancel Order" },
+  confirmCancel: { ar: "تأكيد إلغاء الطلب", en: "Confirm Order Cancellation" },
+  cancelWarning: {
+    ar: "سيتم خصم 10 جنيه من محفظة المتجر وتعويض العميل",
+    en: "10 EGP will be deducted from your store wallet to compensate the customer",
+  },
+  cancelWarningTitle: {
+    ar: "تنبيه هام",
+    en: "Important Notice",
+  },
+  cancelReasonLabel: {
+    ar: "سبب الإلغاء",
+    en: "Cancellation Reason",
+  },
+  cancelReasonPlaceholder: {
+    ar: "اذكر سبب إلغاء الطلب",
+    en: "Enter the reason for cancelling this order",
+  },
+  cancelSuccess: {
+    ar: "تم إلغاء الطلب بنجاح",
+    en: "Order cancelled successfully",
+  },
+  cancelError: {
+    ar: "فشل إلغاء الطلب",
+    en: "Failed to cancel order",
+  },
   normal: { ar: "عادي", en: "Normal" },
   scheduled: { ar: "مجدول", en: "Scheduled" },
 };
@@ -295,7 +322,6 @@ const STATUS_ACTION_LABEL: Record<string, { ar: string; en: string }> = {
 
 export const OrderDetailsPage: React.FC = () => {
   const { orderId } = useParams<{ orderId: string }>();
-  console.log("🔍 [OrderDetailsPage] orderId from URL:", orderId);
 
   const navigate = useNavigate();
   const toast = useToast();
@@ -305,6 +331,8 @@ export const OrderDetailsPage: React.FC = () => {
 
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const {
     data: order,
@@ -317,13 +345,15 @@ export const OrderDetailsPage: React.FC = () => {
   const updateStatus = useUpdateOrderStatus();
   const readyForDriver = useReadyForDriver();
   const pickedUpOrder = usePickedUpOrder();
+  const cancelOrder = useCancelOrder();
 
   const isUpdating =
     acceptOrder.isPending ||
     rejectOrder.isPending ||
     updateStatus.isPending ||
     readyForDriver.isPending ||
-    pickedUpOrder.isPending;
+    pickedUpOrder.isPending ||
+    cancelOrder.isPending;
 
   const handleStatusUpdate = async (newStatus: string) => {
     if (!order) return;
@@ -340,8 +370,6 @@ export const OrderDetailsPage: React.FC = () => {
         });
 
       toast.success(lang(t.statusUpdated));
-
-      // Force refetch the order data immediately after update
       refetch();
     } catch (err: any) {
       toast.error(err?.message || lang(t.statusUpdateError));
@@ -360,6 +388,28 @@ export const OrderDetailsPage: React.FC = () => {
       setRejectReason("");
     } catch (err: any) {
       toast.error(err?.message || lang(t.statusUpdateError));
+    }
+  };
+
+  const handleCancelOrder = async () => {
+    if (!order) return;
+    if (!cancelReason.trim()) {
+      toast.error(
+        isAr ? "يرجى إدخال سبب الإلغاء" : "Please enter a cancellation reason",
+      );
+      return;
+    }
+    try {
+      await cancelOrder.mutateAsync({
+        orderId: order.id,
+        reason: cancelReason.trim(),
+      });
+      toast.success(lang(t.cancelSuccess));
+      setShowCancelModal(false);
+      setCancelReason("");
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.message || lang(t.cancelError));
     }
   };
 
@@ -431,6 +481,7 @@ export const OrderDetailsPage: React.FC = () => {
   const nextStatus = STATUS_FLOW[status];
   const nextLabel = nextStatus ? lang(STATUS_ACTION_LABEL[nextStatus]) : null;
   const canReject = status === "pending";
+  const canCancel = ["pending", "accepted", "preparing"].includes(status);
 
   return (
     <div
@@ -513,7 +564,21 @@ export const OrderDetailsPage: React.FC = () => {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex items-center gap-3 flex-shrink-0 flex-wrap">
+            {canCancel && (
+              <button
+                onClick={() => setShowCancelModal(true)}
+                disabled={isUpdating}
+                className={cn(
+                  "px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200",
+                  "bg-warning-50 text-warning-700 border border-warning-200 hover:bg-warning-100",
+                  "dark:bg-warning-500/10 dark:text-warning-400 dark:border-warning-500/20 dark:hover:bg-warning-500/20",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
+                )}
+              >
+                {lang(t.cancelOrder)}
+              </button>
+            )}
             {canReject && (
               <button
                 onClick={() => setShowRejectModal(true)}
@@ -588,29 +653,153 @@ export const OrderDetailsPage: React.FC = () => {
             {order.items && order.items.length > 0 ? (
               <div className="divide-y divide-surface-100 dark:divide-surface-800">
                 {order.items.map((item, idx) => {
-                  // Get product name based on app language
                   const productName = isAr
                     ? item.productNameAr || item.productNameEn || ""
                     : item.productNameEn || item.productNameAr || "";
 
+                  // Parse options from string if needed
+                  let parsedOptions: any[] = [];
+                  try {
+                    if (
+                      typeof item.options === "string" &&
+                      item.options.trim()
+                    ) {
+                      parsedOptions = JSON.parse(item.options);
+                    } else if (Array.isArray(item.options)) {
+                      parsedOptions = item.options;
+                    }
+                  } catch {
+                    parsedOptions = [];
+                  }
+
                   return (
                     <div
                       key={item.productId || idx}
-                      className="flex items-center justify-between p-4 gap-4 hover:bg-surface-50 dark:hover:bg-surface-800/30 transition-colors"
+                      className="p-4 hover:bg-surface-50 dark:hover:bg-surface-800/30 transition-colors"
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-3">
-                          <span className="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-lg bg-surface-100 dark:bg-surface-800 text-xs font-bold text-surface-600 dark:text-surface-400">
-                            {item.quantity}x
-                          </span>
-                          <p className="text-sm font-medium text-surface-900 dark:text-white truncate">
-                            {productName}
-                          </p>
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-3">
+                            <span className="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-lg bg-surface-100 dark:bg-surface-800 text-xs font-bold text-surface-600 dark:text-surface-400">
+                              {item.quantity}x
+                            </span>
+                            <p className="text-sm font-medium text-surface-900 dark:text-white truncate">
+                              {productName}
+                            </p>
+                          </div>
                         </div>
+                        <p className="text-sm font-semibold text-surface-900 dark:text-white tabular-nums">
+                          {formatCurrency(item.quantity * item.unitPrice)}
+                        </p>
                       </div>
-                      <p className="text-sm font-semibold text-surface-900 dark:text-white tabular-nums">
-                        {formatCurrency(item.quantity * item.unitPrice)}
-                      </p>
+
+                      {/* Product Options Display */}
+                      {parsedOptions.length > 0 && (
+                        <div
+                          className={cn(
+                            "mt-2 pl-[44px] space-y-1",
+                            isAr ? "pr-[44px] pl-0" : "pl-[44px] pr-0",
+                          )}
+                        >
+                          {parsedOptions.map((opt, optIdx) => {
+                            // Handle different option structures
+                            let optionName = "";
+                            let optionValues: string[] = [];
+
+                            if (typeof opt === "string") {
+                              optionName = opt;
+                            } else if (opt && typeof opt === "object") {
+                              optionName = isAr
+                                ? opt.nameAr ||
+                                  opt.optionNameAr ||
+                                  opt.name ||
+                                  opt.optionName ||
+                                  opt.groupName ||
+                                  ""
+                                : opt.nameEn ||
+                                  opt.optionNameEn ||
+                                  opt.name ||
+                                  opt.optionName ||
+                                  opt.groupName ||
+                                  "";
+
+                              // Handle values in different formats
+                              if (Array.isArray(opt.values)) {
+                                optionValues = opt.values
+                                  .map((v: any) =>
+                                    isAr
+                                      ? v.nameAr ||
+                                        v.valueNameAr ||
+                                        v.name ||
+                                        v.valueName ||
+                                        ""
+                                      : v.nameEn ||
+                                        v.valueNameEn ||
+                                        v.name ||
+                                        v.valueName ||
+                                        "",
+                                  )
+                                  .filter(Boolean);
+                              } else if (opt.value) {
+                                optionValues = [
+                                  isAr
+                                    ? opt.value.nameAr || opt.value.name || ""
+                                    : opt.value.nameEn || opt.value.name || "",
+                                ];
+                              } else if (opt.valueName) {
+                                optionValues = [opt.valueName];
+                              } else if (opt.selectedValue) {
+                                optionValues = [
+                                  typeof opt.selectedValue === "string"
+                                    ? opt.selectedValue
+                                    : isAr
+                                      ? opt.selectedValue.nameAr ||
+                                        opt.selectedValue.name ||
+                                        ""
+                                      : opt.selectedValue.nameEn ||
+                                        opt.selectedValue.name ||
+                                        "",
+                                ];
+                              }
+                            }
+
+                            return (
+                              <div
+                                key={optIdx}
+                                className="flex items-start gap-2 text-xs"
+                              >
+                                <span className="text-surface-400 dark:text-surface-500 mt-0.5">
+                                  <svg
+                                    className="w-3 h-3"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    strokeWidth={2}
+                                    stroke="currentColor"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                    />
+                                  </svg>
+                                </span>
+                                <div className="flex flex-col gap-0.5">
+                                  {optionName && (
+                                    <span className="font-medium text-surface-600 dark:text-surface-400">
+                                      {optionName}:
+                                    </span>
+                                  )}
+                                  {optionValues.length > 0 && (
+                                    <span className="text-surface-500 dark:text-surface-500">
+                                      {optionValues.join(", ")}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -751,6 +940,15 @@ export const OrderDetailsPage: React.FC = () => {
               {lang(t.actions)}
             </h3>
             <div className="space-y-2">
+              {canCancel && (
+                <button
+                  onClick={() => setShowCancelModal(true)}
+                  disabled={isUpdating}
+                  className="w-full px-4 py-3 rounded-xl text-sm font-semibold bg-warning-50 text-warning-700 border border-warning-200 hover:bg-warning-100 dark:bg-warning-500/10 dark:text-warning-400 dark:border-warning-500/20 disabled:opacity-50 transition-all"
+                >
+                  {lang(t.cancelOrder)}
+                </button>
+              )}
               {canReject && (
                 <button
                   onClick={() => setShowRejectModal(true)}
@@ -801,6 +999,181 @@ export const OrderDetailsPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Cancel Order Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-20 sm:pt-24 bg-black/50 backdrop-blur-sm animate-fade-in overflow-y-auto">
+          <div
+            className={cn(
+              "w-full max-w-md rounded-2xl overflow-hidden animate-fade-in-scale mb-8",
+              "bg-white dark:bg-surface-900",
+              "border border-surface-200 dark:border-surface-800",
+              "shadow-2xl shadow-black/10 dark:shadow-black/30",
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between sticky top-0 bg-white dark:bg-surface-900 z-10">
+              <div>
+                <h3 className="text-lg font-bold text-surface-900 dark:text-white">
+                  {lang(t.confirmCancel)}
+                </h3>
+                <p className="text-xs text-surface-500 dark:text-surface-400 mt-0.5">
+                  {isAr
+                    ? "سيتم إلغاء الطلب وتعويض العميل"
+                    : "Order will be cancelled and customer compensated"}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCancelModal(false)}
+                className="p-2 rounded-xl text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M6 18 18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4">
+              {/* Warning Box */}
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-warning-50 dark:bg-warning-500/10 border border-warning-200 dark:border-warning-500/20">
+                <div className="w-10 h-10 rounded-xl bg-warning-100 dark:bg-warning-500/20 flex items-center justify-center flex-shrink-0">
+                  <svg
+                    className="w-5 h-5 text-warning-600 dark:text-warning-400"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+                    />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-warning-700 dark:text-warning-400 mb-1">
+                    {lang(t.cancelWarningTitle)}
+                  </p>
+                  <p className="text-sm text-warning-600 dark:text-warning-300 leading-relaxed">
+                    {lang(t.cancelWarning)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Cancel Reason Input */}
+              <div>
+                <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
+                  {lang(t.cancelReasonLabel)}{" "}
+                  <span className="text-error-500">*</span>
+                </label>
+                <textarea
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder={lang(t.cancelReasonPlaceholder)}
+                  rows={3}
+                  dir={isAr ? "rtl" : "ltr"}
+                  className={cn(
+                    "w-full px-4 py-3 rounded-xl text-sm transition-all duration-200",
+                    "bg-surface-100 dark:bg-surface-800",
+                    "text-surface-900 dark:text-white",
+                    "placeholder:text-surface-400 dark:placeholder:text-surface-500",
+                    "border-2 border-transparent",
+                    "focus:outline-none focus:border-warning-500/50 focus:bg-surface-50 dark:focus:bg-surface-800/50",
+                    "resize-none",
+                    isAr ? "text-right" : "text-left",
+                  )}
+                />
+              </div>
+
+              {/* Wallet Charge Info */}
+              <div className="flex items-center justify-between p-4 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-200 dark:border-surface-700">
+                <span className="text-sm text-surface-600 dark:text-surface-400">
+                  {isAr ? "مبلغ الخصم" : "Deduction Amount"}
+                </span>
+                <span className="text-base font-bold text-warning-600 dark:text-warning-400">
+                  10 {isAr ? "ج.م" : "EGP"}
+                </span>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    setShowCancelModal(false);
+                    setCancelReason("");
+                  }}
+                  disabled={isUpdating}
+                  className={cn(
+                    "flex-1 px-4 py-3 rounded-xl text-sm font-semibold",
+                    "bg-surface-100 dark:bg-surface-800",
+                    "text-surface-700 dark:text-surface-300",
+                    "hover:bg-surface-200 dark:hover:bg-surface-700",
+                    "active:scale-[0.98]",
+                    "transition-all duration-200",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                  )}
+                >
+                  {lang(t.cancel)}
+                </button>
+                <button
+                  onClick={handleCancelOrder}
+                  disabled={isUpdating || !cancelReason.trim()}
+                  className={cn(
+                    "flex-1 px-4 py-3 rounded-xl text-sm font-semibold",
+                    "bg-warning-600 text-white",
+                    "hover:bg-warning-700",
+                    "active:scale-[0.98]",
+                    "shadow-sm hover:shadow-md",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                    "transition-all duration-200",
+                    "flex items-center justify-center gap-2",
+                  )}
+                >
+                  {isUpdating ? (
+                    <>
+                      <svg
+                        className="w-4 h-4 animate-spin"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                        />
+                      </svg>
+                      {isAr ? "جاري الإلغاء..." : "Cancelling..."}
+                    </>
+                  ) : (
+                    lang(t.confirmCancel)
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reject Modal */}
       {showRejectModal && (

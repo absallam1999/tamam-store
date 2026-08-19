@@ -212,25 +212,28 @@ export const WalletPage: React.FC = () => {
   const pendingWithdrawals = wallet?.pendingWithdrawals ?? [];
 
   // Validate sender info based on payment method
-  const validateSenderInfo = useCallback((value: string, method: typeof selectedPaymentMethod): boolean => {
-    if (!value.trim()) {
-      toast.error(lang(t.requiredPhone));
-      return false;
-    }
+  const validateSenderInfo = useCallback(
+    (value: string, method: typeof selectedPaymentMethod): boolean => {
+      if (!value.trim()) {
+        toast.error(lang(t.requiredPhone));
+        return false;
+      }
 
-    if (method === "mobile_wallet") {
-      if (!isValidEgyptianPhone(value)) {
-        toast.error(lang(t.invalidPhone));
-        return false;
+      if (method === "mobile_wallet") {
+        if (!isValidEgyptianPhone(value)) {
+          toast.error(lang(t.invalidPhone));
+          return false;
+        }
+      } else if (method === "instapay") {
+        if (!isValidInstapay(value)) {
+          toast.error(lang(t.invalidInstapay));
+          return false;
+        }
       }
-    } else if (method === "instapay") {
-      if (!isValidInstapay(value)) {
-        toast.error(lang(t.invalidInstapay));
-        return false;
-      }
-    }
-    return true;
-  }, [toast, lang]);
+      return true;
+    },
+    [toast, lang],
+  );
 
   // useMemo and useCallback hooks
   const formatHidden = useCallback(
@@ -308,9 +311,7 @@ export const WalletPage: React.FC = () => {
 
     if (!senderInfo.trim()) {
       toast.error(
-        isAr
-          ? "يرجى إدخال معلومات المرسل"
-          : "Please enter sender information",
+        isAr ? "يرجى إدخال معلومات المرسل" : "Please enter sender information",
       );
       return;
     }
@@ -581,7 +582,7 @@ export const WalletPage: React.FC = () => {
                 setWithdrawAmount("");
                 setShowWithdrawModal(true);
               }}
-              // disabled={balance <= 0}
+              disabled={balance <= 0}
               className={cn(
                 "flex-1 px-5 py-3.5 rounded-xl text-sm font-semibold transition-all duration-200 bg-white text-primary-700 hover:bg-white/90 active:scale-[0.98] shadow-lg shadow-black/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2",
               )}
@@ -858,27 +859,24 @@ export const WalletPage: React.FC = () => {
                 </div>
               </div>
 
-              <div
-                className={cn(
-                  "flex gap-2 flex-wrap",
-                  isAr ? "justify-end flex-row-reverse" : "justify-start",
-                )}
-              >
-                {[1000, 5000, 10000].map((amt) => (
-                  <button
-                    key={amt}
-                    onClick={() =>
-                      setWithdrawAmount(String(Math.min(amt, balance)))
-                    }
-                    className={cn(
-                      "px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-surface-900 dark:hover:text-white border border-surface-200 dark:border-surface-700",
-                      Number(withdrawAmount) === amt &&
-                        "border-primary-400 bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400 dark:border-primary-500/30",
-                    )}
-                  >
-                    {formatCurrency(amt)}
-                  </button>
-                ))}
+              <div className="flex gap-2 flex-wrap justify-start">
+                {[1000, 5000, 10000]
+                  .sort((a, b) => a - b)
+                  .map((amt) => (
+                    <button
+                      key={amt}
+                      onClick={() =>
+                        setWithdrawAmount(String(Math.min(amt, balance)))
+                      }
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-surface-900 dark:hover:text-white border border-surface-200 dark:border-surface-700",
+                        Number(withdrawAmount) === amt &&
+                          "border-primary-400 bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400 dark:border-primary-500/30",
+                      )}
+                    >
+                      {formatCurrency(amt)}
+                    </button>
+                  ))}
               </div>
 
               {Number(withdrawAmount) >= balance && balance > 0 && (
@@ -989,7 +987,7 @@ export const WalletPage: React.FC = () => {
       )}
 
       {/* Deposit Modal */}
-       {showDepositModal && (
+      {showDepositModal && (
         <div
           className="fixed inset-0 z-[100] flex items-start justify-center p-4 pt-20 sm:pt-24 bg-black/50 backdrop-blur-sm animate-fade-in overflow-y-auto"
           onClick={(e) =>
@@ -1070,12 +1068,7 @@ export const WalletPage: React.FC = () => {
                 </div>
               </div>
 
-              <div
-                className={cn(
-                  "flex gap-2 flex-wrap",
-                  isAr ? "justify-end flex-row-reverse" : "justify-start",
-                )}
-              >
+              <div className="flex gap-2 flex-wrap justify-start">
                 {[200, 500, 1000, 2000].map((amt) => (
                   <button
                     key={amt}
@@ -1165,12 +1158,7 @@ export const WalletPage: React.FC = () => {
                         stroke="currentColor"
                         strokeWidth="2"
                       />
-                      <circle
-                        cx="13.5"
-                        cy="7.5"
-                        r="1.75"
-                        fill="currentColor"
-                      />
+                      <circle cx="13.5" cy="7.5" r="1.75" fill="currentColor" />
                       <path
                         d="M13.5 11.5l-2 5.5"
                         stroke="currentColor"
@@ -1412,8 +1400,10 @@ export const WalletPage: React.FC = () => {
                     Number(depositAmount) <= 0 ||
                     !selectedPaymentMethod ||
                     !senderInfo.trim() ||
-                    (selectedPaymentMethod === "mobile_wallet" && !isValidEgyptianPhone(senderInfo)) ||
-                    (selectedPaymentMethod === "instapay" && !isValidInstapay(senderInfo))
+                    (selectedPaymentMethod === "mobile_wallet" &&
+                      !isValidEgyptianPhone(senderInfo)) ||
+                    (selectedPaymentMethod === "instapay" &&
+                      !isValidInstapay(senderInfo))
                   }
                   className={cn(
                     "flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 bg-primary-600 text-white hover:bg-primary-700 active:scale-[0.98] dark:bg-primary-500 dark:hover:bg-primary-600 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 flex items-center justify-center gap-2",

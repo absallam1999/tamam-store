@@ -73,6 +73,16 @@ export const storeApi = {
       .get<StoreTypeDto[]>(ENDPOINTS.STORE.TYPES_AVAILABLE)
       .then((r) => r.data),
 
+  getAvailableCategories: () =>
+    apiClient
+      .get<any[]>(ENDPOINTS.STORE.CATEGORIES_AVAILABLE)
+      .then((r) => r.data),
+
+  getAvailableStoreTypesByCategory: (categoryId: string) =>
+    apiClient
+      .get<StoreTypeDto[]>(ENDPOINTS.STORE.TYPES_BY_CATEGORY(categoryId))
+      .then((r) => r.data),
+
   addStoreType: (storeTypeId: string) =>
     apiClient.post<void>(ENDPOINTS.STORE.ADD_TYPE(storeTypeId)),
 
@@ -299,7 +309,10 @@ export const storeApi = {
     apiClient.post<void>(ENDPOINTS.STORE.ORDER_ACCEPT(orderId)),
 
   rejectOrder: (orderId: string, reason?: string) =>
-    apiClient.post<void>(ENDPOINTS.STORE.ORDER_REJECT(orderId), reason),
+    apiClient.post<void>(ENDPOINTS.STORE.ORDER_REJECT(orderId), { reason }),
+
+  cancelOrder: (orderId: string, reason: string) =>
+    apiClient.post<void>(ENDPOINTS.STORE.ORDER_CANCEL(orderId), reason),
 
   updateOrderStatus: (orderId: string, dto: UpdateOrderStatusDto) =>
     apiClient.put<void>(ENDPOINTS.STORE.ORDER_STATUS(orderId), dto),

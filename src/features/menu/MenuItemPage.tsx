@@ -11,10 +11,19 @@ import {
   useCreateProduct,
   useUpdateProduct,
   useDeleteProduct,
+  useProductOptions,
+  useCreateProductOption,
+  useDeleteProductOption,
 } from "@shared/hooks/useStoreProducts";
 import { getProductImage } from "@/shared/utils/Parser";
 import { useStore } from "@/app/providers/StoreProvider";
-import type { CreateProductDto, UpdateProductDto } from "@shared/types";
+import type {
+  CreateProductDto,
+  UpdateProductDto,
+  ProductOptionGroupDto,
+  CreateProductOptionDto,
+  CreateProductOptionValueDto,
+} from "@shared/types";
 
 // ============================================
 // Types
@@ -34,6 +43,20 @@ interface MenuItemForm {
   sku?: string;
   barcode?: string;
   imageUrl?: string;
+  lowStockThreshold?: number;
+}
+
+interface LocalOptionGroup extends CreateProductOptionDto {
+  id?: string;
+  values: LocalOptionValue[];
+}
+
+interface LocalOptionValue extends Omit<
+  CreateProductOptionValueDto,
+  "additionalPrice"
+> {
+  id?: string;
+  additionalPrice: number;
 }
 
 // ============================================
@@ -46,10 +69,11 @@ const t = {
   backToMenu: { ar: "العودة للقائمة", en: "Back to Menu" },
   basicInfo: { ar: "معلومات أساسية", en: "Basic Information" },
   pricing: { ar: "التسعير", en: "Pricing" },
+  options: { ar: "خيارات المنتج", en: "Product Options" },
   settings: { ar: "الإعدادات", en: "Settings" },
   image: { ar: "صورة المنتج", en: "Product Image" },
-  nameAr: { ar: "اسم المنتج (عربي)", en: "Product Name (Arabic)" },
-  nameEn: { ar: "اسم المنتج (إنجليزي)", en: "Product Name (English)" },
+  nameAr: { ar: "الاسم (عربي)", en: "Name (Arabic)" },
+  nameEn: { ar: "الاسم (إنجليزي)", en: "Name (English)" },
   nameArPlaceholder: { ar: "مثال: برجر كلاسيك", en: "e.g. Classic Burger" },
   nameEnPlaceholder: { ar: "مثال: Classic Burger", en: "e.g. Classic Burger" },
   descriptionAr: { ar: "الوصف (عربي)", en: "Description (Arabic)" },
@@ -74,6 +98,10 @@ const t = {
   featured: { ar: "منتج مميز", en: "Featured Product" },
   sku: { ar: "SKU (اختياري)", en: "SKU (optional)" },
   barcode: { ar: "باركود (اختياري)", en: "Barcode (optional)" },
+  lowStockThreshold: {
+    ar: "حد التنبيه للمخزون (اختياري)",
+    en: "Low Stock Threshold (optional)",
+  },
   save: { ar: "حفظ", en: "Save" },
   saving: { ar: "جاري الحفظ...", en: "Saving..." },
   addItem: { ar: "إضافة المنتج", en: "Add Item" },
@@ -143,12 +171,74 @@ const t = {
     ar: "يرجى اختيار صورة بصيغة JPEG, PNG, WebP أو GIF",
     en: "Please select a JPEG, PNG, WebP or GIF image",
   },
+  addOptionGroup: { ar: "إضافة مجموعة خيارات", en: "Add Option Group" },
+  removeOptionGroup: { ar: "حذف المجموعة", en: "Remove Group" },
+  optionGroupName: { ar: "اسم المجموعة", en: "Group Name" },
+  optionNameArPlaceholder: { ar: "مثال: حجم", en: "e.g. Size" },
+  optionNameEnPlaceholder: { ar: "مثال: Size", en: "e.g. Size" },
+  isRequired: { ar: "إلزامي", en: "Required" },
+  isMultiple: { ar: "اختيار متعدد", en: "Multiple Selection" },
+  displayOrder: { ar: "ترتيب العرض", en: "Display Order" },
+  values: { ar: "قيم الخيار", en: "Option Values" },
+  addValue: { ar: "إضافة قيمة", en: "Add Value" },
+  removeValue: { ar: "حذف", en: "Remove" },
+  valueNameAr: { ar: "اسم القيمة (عربي)", en: "Value Name (Arabic)" },
+  valueNameEn: { ar: "اسم القيمة (إنجليزي)", en: "Value Name (English)" },
+  valueAdditionalPrice: { ar: "سعر إضافي", en: "Extra Price" },
+  valueNameArPlaceholder: { ar: "مثال: كبير", en: "e.g. Large" },
+  valueNameEnPlaceholder: { ar: "مثال: Large", en: "e.g. Large" },
+  valuePricePlaceholder: { ar: "0.00", en: "0.00" },
+  valueNameRequired: { ar: "اسم القيمة مطلوب", en: "Value name is required" },
+  optionGroupNameRequired: {
+    ar: "اسم المجموعة مطلوب",
+    en: "Group name is required",
+  },
+  atLeastOneValue: {
+    ar: "يجب إضافة قيمة واحدة على الأقل",
+    en: "Add at least one value",
+  },
+  isDefault: { ar: "القيمة الافتراضية", en: "Default Value" },
+} as const;
+
+// ============================================
+// Helper: Compare two option arrays deeply
+// ============================================
+const areOptionsEqual = (
+  a: LocalOptionGroup[],
+  b: LocalOptionGroup[],
+): boolean => {
+  if (a.length !== b.length) return false;
+
+  return a.every((group, gi) => {
+    const other = b[gi];
+    if (!other) return false;
+    if (
+      group.nameAr !== other.nameAr ||
+      group.nameEn !== other.nameEn ||
+      group.isRequired !== other.isRequired ||
+      group.isMultiple !== other.isMultiple ||
+      group.displayOrder !== other.displayOrder
+    ) {
+      return false;
+    }
+
+    if (group.values.length !== other.values.length) return false;
+    return group.values.every((value, vi) => {
+      const otherValue = other.values[vi];
+      return (
+        value.nameAr === otherValue?.nameAr &&
+        value.nameEn === otherValue?.nameEn &&
+        Number(value.additionalPrice) === Number(otherValue?.additionalPrice) &&
+        Boolean(value.isDefault) === Boolean(otherValue?.isDefault) &&
+        Number(value.displayOrder) === Number(otherValue?.displayOrder)
+      );
+    });
+  });
 };
 
 // ============================================
 // Main Component
 // ============================================
-
 export const MenuItemPage: React.FC = () => {
   const { itemId } = useParams<{ itemId: string }>();
   const navigate = useNavigate();
@@ -163,17 +253,48 @@ export const MenuItemPage: React.FC = () => {
   const isNew = !itemId || itemId === "new";
   const isEdit = !isNew;
 
+  const fixImageUrl = (url: string | undefined): string | undefined => {
+    if (!url) return undefined;
+    let fixed = url.replace(/\/uploads\//g, "/");
+    fixed = fixed.replace(/\/Store\//g, "/stores/");
+    fixed = fixed.replace(/^Store\//, "stores/");
+    if (fixed.startsWith("http://") || fixed.startsWith("https://")) {
+      return fixed;
+    }
+    if (fixed.startsWith("/")) {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
+      return `${baseUrl}${fixed}`;
+    }
+    if (store?.id) {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
+      const cleanFileName = fixed.replace(/^.*\//, "");
+      return `${baseUrl}/stores/${store.id}/products/${cleanFileName}`;
+    }
+    return fixed;
+  };
+
   const { data: categories = [], isLoading: categoriesLoading } =
     useMenuCategories();
   const { data: existingProduct, isLoading: productLoading } = useProduct(
     isEdit ? itemId! : "",
   );
+  const { data: existingOptions = [], isLoading: optionsLoading } =
+    useProductOptions(isEdit ? itemId! : "");
+
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct(isEdit ? itemId! : "");
   const deleteProduct = useDeleteProduct();
 
-  const isLoading = (isEdit && productLoading) || categoriesLoading;
-  const isSaving = createProduct.isPending || updateProduct.isPending;
+  const createOption = useCreateProductOption(isEdit ? itemId! : "");
+  const deleteOption = useDeleteProductOption();
+
+  const isLoading =
+    (isEdit && (productLoading || optionsLoading)) || categoriesLoading;
+  const isSaving =
+    createProduct.isPending ||
+    updateProduct.isPending ||
+    createOption.isPending ||
+    deleteOption.isPending;
   const isDeleting = deleteProduct.isPending;
 
   const [form, setForm] = useState<MenuItemForm>({
@@ -186,15 +307,16 @@ export const MenuItemPage: React.FC = () => {
     isAvailable: true,
     isFeatured: false,
     preparationTimeMinutes: 15,
+    lowStockThreshold: undefined,
   });
 
+  const [options, setOptions] = useState<LocalOptionGroup[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [translatingField, setTranslatingField] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     if (isEdit && existingProduct) {
-      // Use getProductImage to fix the image URL
       const fixedImageUrl = existingProduct.imageUrl
         ? getProductImage(
             { id: existingProduct.id, imageUrl: existingProduct.imageUrl },
@@ -217,9 +339,34 @@ export const MenuItemPage: React.FC = () => {
         sku: existingProduct.sku,
         barcode: existingProduct.barcode,
         imageUrl: fixedImageUrl,
+        lowStockThreshold: existingProduct.lowStockThreshold,
       });
     }
   }, [isEdit, existingProduct, store?.id]);
+
+  useEffect(() => {
+    if (isEdit && existingOptions.length > 0) {
+      const localOptions: LocalOptionGroup[] = existingOptions.map((group) => ({
+        id: group.id,
+        nameAr: group.nameAr,
+        nameEn: group.nameEn,
+        isRequired: group.isRequired,
+        isMultiple: group.isMultiple,
+        displayOrder: group.displayOrder || 0,
+        values: group.values.map((v) => ({
+          id: v.id,
+          nameAr: v.nameAr,
+          nameEn: v.nameEn,
+          additionalPrice: v.additionalPrice || 0,
+          isDefault: v.isDefault || false,
+          displayOrder: v.displayOrder || 0,
+        })),
+      }));
+      setOptions(localOptions);
+    } else if (isEdit && existingOptions.length === 0) {
+      setOptions([]);
+    }
+  }, [isEdit, existingOptions]);
 
   const updateField = (field: keyof MenuItemForm, value: any) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -231,39 +378,82 @@ export const MenuItemPage: React.FC = () => {
       });
   };
 
-  // Helper function to fix image URL (remove /uploads/)
-  const fixImageUrl = (url: string | undefined): string | undefined => {
-    if (!url) return undefined;
+  const addOptionGroup = () => {
+    setOptions((prev) => [
+      ...prev,
+      {
+        nameAr: "",
+        nameEn: "",
+        isRequired: false,
+        isMultiple: false,
+        displayOrder: prev.length,
+        values: [
+          {
+            nameAr: "",
+            nameEn: "",
+            additionalPrice: 0,
+            isDefault: false,
+            displayOrder: 0,
+          },
+        ],
+      },
+    ]);
+  };
 
-    // Remove /uploads/ from anywhere in the URL
-    let fixed = url.replace(/\/uploads\//g, "/");
+  const removeOptionGroup = (index: number) => {
+    setOptions((prev) => prev.filter((_, i) => i !== index));
+  };
 
-    // Fix /Store/ to /stores/ (lowercase)
-    fixed = fixed.replace(/\/Store\//g, "/stores/");
+  const updateOptionGroup = (
+    index: number,
+    field: keyof LocalOptionGroup,
+    value: any,
+  ) => {
+    setOptions((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
 
-    // Fix Store/ (no leading slash) to stores/
-    fixed = fixed.replace(/^Store\//, "stores/");
+  const addOptionValue = (groupIndex: number) => {
+    setOptions((prev) => {
+      const updated = [...prev];
+      updated[groupIndex].values.push({
+        nameAr: "",
+        nameEn: "",
+        additionalPrice: 0,
+        isDefault: false,
+        displayOrder: updated[groupIndex].values.length,
+      });
+      return updated;
+    });
+  };
 
-    // If it's a full URL, just return the fixed version
-    if (fixed.startsWith("http://") || fixed.startsWith("https://")) {
-      return fixed;
-    }
+  const removeOptionValue = (groupIndex: number, valueIndex: number) => {
+    setOptions((prev) => {
+      const updated = [...prev];
+      updated[groupIndex].values = updated[groupIndex].values.filter(
+        (_, i) => i !== valueIndex,
+      );
+      return updated;
+    });
+  };
 
-    // If it's a relative path, prepend base URL
-    if (fixed.startsWith("/")) {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-      return `${baseUrl}${fixed}`;
-    }
-
-    // If it's just a filename, construct the full URL
-    if (store?.id) {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-      // Make sure the filename doesn't have any slashes
-      const cleanFileName = fixed.replace(/^.*\//, "");
-      return `${baseUrl}/stores/${store.id}/products/${cleanFileName}`;
-    }
-
-    return fixed;
+  const updateOptionValue = (
+    groupIndex: number,
+    valueIndex: number,
+    field: keyof LocalOptionValue,
+    value: any,
+  ) => {
+    setOptions((prev) => {
+      const updated = [...prev];
+      updated[groupIndex].values[valueIndex] = {
+        ...updated[groupIndex].values[valueIndex],
+        [field]: value,
+      };
+      return updated;
+    });
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -316,7 +506,6 @@ export const MenuItemPage: React.FC = () => {
         imageUrl = result?.data?.url || result?.url;
       }
 
-      // Fix the image URL: remove /uploads/ and fix /Store/ to /stores/
       if (imageUrl) {
         const fixedUrl = fixImageUrl(imageUrl);
         updateField("imageUrl", fixedUrl || imageUrl);
@@ -374,12 +563,29 @@ export const MenuItemPage: React.FC = () => {
     if (!form.menuCategoryId) e.menuCategoryId = lang(t.categoryRequired);
     if (form.preparationTimeMinutes <= 0)
       e.preparationTimeMinutes = lang(t.prepTimeRequired);
+
+    options.forEach((group, gi) => {
+      const groupPrefix = `options[${gi}]`;
+      if (!group.nameAr.trim() || !group.nameEn.trim()) {
+        e[`${groupPrefix}.name`] = lang(t.optionGroupNameRequired);
+      }
+      if (group.values.length === 0) {
+        e[`${groupPrefix}.values`] = lang(t.atLeastOneValue);
+      }
+      group.values.forEach((val, vi) => {
+        if (!val.nameAr.trim() || !val.nameEn.trim()) {
+          e[`${groupPrefix}.values[${vi}].name`] = lang(t.valueNameRequired);
+        }
+      });
+    });
+
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
   const handleSave = async () => {
     if (!validate()) return;
+
     try {
       if (isNew) {
         const dto: CreateProductDto = {
@@ -390,11 +596,29 @@ export const MenuItemPage: React.FC = () => {
           descriptionEn: form.descriptionEn || undefined,
           price: form.price,
           discountedPrice: form.discountedPrice,
-          preparationTimeMinutes: form.preparationTimeMinutes,
+          preparationTimeMinutes: Number(form.preparationTimeMinutes) || 15,
           sku: form.sku,
           barcode: form.barcode,
           stockQuantity: 0,
+          lowStockThreshold: form.lowStockThreshold,
           imageUrl: form.imageUrl,
+          options:
+            options.length > 0
+              ? options.map((g) => ({
+                  nameAr: g.nameAr,
+                  nameEn: g.nameEn,
+                  isRequired: g.isRequired,
+                  isMultiple: g.isMultiple,
+                  displayOrder: g.displayOrder,
+                  values: g.values.map((v) => ({
+                    nameAr: v.nameAr,
+                    nameEn: v.nameEn,
+                    additionalPrice: Number(v.additionalPrice) || 0,
+                    isDefault: Boolean(v.isDefault),
+                    displayOrder: Number(v.displayOrder) || 0,
+                  })),
+                }))
+              : undefined,
         };
         await createProduct.mutateAsync(dto);
         toast.success(lang(t.addSuccess));
@@ -406,21 +630,73 @@ export const MenuItemPage: React.FC = () => {
           descriptionEn: form.descriptionEn || undefined,
           price: form.price,
           discountedPrice: form.discountedPrice,
-          preparationTimeMinutes: form.preparationTimeMinutes,
+          preparationTimeMinutes: Number(form.preparationTimeMinutes) || 15,
           isAvailable: form.isAvailable,
           isFeatured: form.isFeatured,
           sku: form.sku,
           barcode: form.barcode,
           stockQuantity: existingProduct?.stockQuantity ?? 0,
+          lowStockThreshold: form.lowStockThreshold,
           imageUrl: form.imageUrl,
         };
         await updateProduct.mutateAsync(dto);
+
+        // Convert existing options to comparable LocalOptionGroup format
+        const existingLocalOptions: LocalOptionGroup[] = existingOptions.map(
+          (group) => ({
+            id: group.id,
+            nameAr: group.nameAr,
+            nameEn: group.nameEn,
+            isRequired: group.isRequired,
+            isMultiple: group.isMultiple,
+            displayOrder: group.displayOrder || 0,
+            values: group.values.map((v) => ({
+              id: v.id,
+              nameAr: v.nameAr,
+              nameEn: v.nameEn,
+              additionalPrice: v.additionalPrice || 0,
+              isDefault: v.isDefault || false,
+              displayOrder: v.displayOrder || 0,
+            })),
+          }),
+        );
+
+        const optionsChanged = !areOptionsEqual(existingLocalOptions, options);
+
+        if (optionsChanged) {
+          // Delete old groups
+          for (const group of existingOptions) {
+            await deleteOption.mutateAsync(group.id);
+          }
+          // Create new groups
+          for (const group of options) {
+            await createOption.mutateAsync({
+              nameAr: group.nameAr,
+              nameEn: group.nameEn,
+              isRequired: group.isRequired,
+              isMultiple: group.isMultiple,
+              displayOrder: group.displayOrder,
+              values: group.values.map((v) => ({
+                nameAr: v.nameAr,
+                nameEn: v.nameEn,
+                additionalPrice: Number(v.additionalPrice) || 0,
+                isDefault: Boolean(v.isDefault),
+                displayOrder: Number(v.displayOrder) || 0,
+              })),
+            });
+          }
+        }
         toast.success(lang(t.updateSuccess));
       }
       navigate("/dashboard/menu");
     } catch (err) {
       const message = err instanceof Error ? err.message : lang(t.saveError);
-      toast.error(message);
+      // Try to extract more detail from the server response
+      const detail =
+        (err as any)?.response?.data?.Message ||
+        (err as any)?.response?.data?.message ||
+        (err as any)?.response?.data?.title;
+      toast.error(detail || message);
     }
   };
 
@@ -523,8 +799,6 @@ export const MenuItemPage: React.FC = () => {
       </button>
     );
   };
-
-  const { nameAr, nameEn, descriptionAr, descriptionEn } = form;
 
   if (isLoading) {
     return (
@@ -671,7 +945,7 @@ export const MenuItemPage: React.FC = () => {
 
       {/* Form */}
       <div className="space-y-6">
-        {/* Basic Info + Image Card */}
+        {/* Basic Info + Image */}
         <div className="bg-white dark:bg-surface-900 rounded-3xl border border-surface-200 dark:border-surface-800 p-6 sm:p-8 shadow-sm">
           <div className="flex items-center gap-3 mb-6 pb-3 border-b border-surface-100 dark:border-surface-800">
             <div className="w-10 h-10 rounded-xl bg-primary-100 dark:bg-primary-500/10 flex items-center justify-center">
@@ -831,12 +1105,12 @@ export const MenuItemPage: React.FC = () => {
                     <div className="relative">
                       <input
                         type="text"
-                        value={nameAr}
+                        value={form.nameAr}
                         onChange={(e) => updateField("nameAr", e.target.value)}
                         className={cn(
                           inputClasses(!!errors.nameAr),
                           "text-right",
-                          nameAr.trim() && "pl-24",
+                          form.nameAr.trim() && "pl-24",
                         )}
                         placeholder={lang(t.nameArPlaceholder)}
                         dir="rtl"
@@ -855,7 +1129,7 @@ export const MenuItemPage: React.FC = () => {
                     </label>
                     <input
                       type="text"
-                      value={nameEn}
+                      value={form.nameEn}
                       onChange={(e) => updateField("nameEn", e.target.value)}
                       className={cn(inputClasses(!!errors.nameEn), "text-left")}
                       placeholder={lang(t.nameEnPlaceholder)}
@@ -877,12 +1151,12 @@ export const MenuItemPage: React.FC = () => {
                     <div className="relative">
                       <input
                         type="text"
-                        value={nameEn}
+                        value={form.nameEn}
                         onChange={(e) => updateField("nameEn", e.target.value)}
                         className={cn(
                           inputClasses(!!errors.nameEn),
                           "text-left",
-                          nameEn.trim() && "pr-24",
+                          form.nameEn.trim() && "pr-24",
                         )}
                         placeholder={lang(t.nameEnPlaceholder)}
                         dir="ltr"
@@ -901,7 +1175,7 @@ export const MenuItemPage: React.FC = () => {
                     </label>
                     <input
                       type="text"
-                      value={nameAr}
+                      value={form.nameAr}
                       onChange={(e) => updateField("nameAr", e.target.value)}
                       className={cn(
                         inputClasses(!!errors.nameAr),
@@ -929,7 +1203,7 @@ export const MenuItemPage: React.FC = () => {
                     </label>
                     <div className="relative">
                       <textarea
-                        value={descriptionAr}
+                        value={form.descriptionAr}
                         onChange={(e) =>
                           updateField("descriptionAr", e.target.value)
                         }
@@ -937,7 +1211,7 @@ export const MenuItemPage: React.FC = () => {
                         className={cn(
                           inputClasses(false),
                           "resize-none text-right",
-                          descriptionAr.trim() && "pl-24",
+                          form.descriptionAr.trim() && "pl-24",
                         )}
                         placeholder={lang(t.descriptionArPlaceholder)}
                         dir="rtl"
@@ -953,7 +1227,7 @@ export const MenuItemPage: React.FC = () => {
                       </span>
                     </label>
                     <textarea
-                      value={descriptionEn}
+                      value={form.descriptionEn}
                       onChange={(e) =>
                         updateField("descriptionEn", e.target.value)
                       }
@@ -978,7 +1252,7 @@ export const MenuItemPage: React.FC = () => {
                     </label>
                     <div className="relative">
                       <textarea
-                        value={descriptionEn}
+                        value={form.descriptionEn}
                         onChange={(e) =>
                           updateField("descriptionEn", e.target.value)
                         }
@@ -986,7 +1260,7 @@ export const MenuItemPage: React.FC = () => {
                         className={cn(
                           inputClasses(false),
                           "resize-none text-left",
-                          descriptionEn.trim() && "pr-24",
+                          form.descriptionEn.trim() && "pr-24",
                         )}
                         placeholder={lang(t.descriptionEnPlaceholder)}
                         dir="ltr"
@@ -1002,7 +1276,7 @@ export const MenuItemPage: React.FC = () => {
                       </span>
                     </label>
                     <textarea
-                      value={descriptionAr}
+                      value={form.descriptionAr}
                       onChange={(e) =>
                         updateField("descriptionAr", e.target.value)
                       }
@@ -1021,7 +1295,7 @@ export const MenuItemPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Pricing Card */}
+        {/* Pricing */}
         <div className="bg-white dark:bg-surface-900 rounded-3xl border border-surface-200 dark:border-surface-800 p-6 sm:p-8 shadow-sm">
           <div className="flex items-center gap-3 mb-6 pb-3 border-b border-surface-100 dark:border-surface-800">
             <div className="w-10 h-10 rounded-xl bg-success-100 dark:bg-success-500/10 flex items-center justify-center">
@@ -1086,7 +1360,537 @@ export const MenuItemPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Settings Card */}
+        {/* Options */}
+        <div className="bg-white dark:bg-surface-900 rounded-3xl border border-surface-200 dark:border-surface-800 shadow-sm overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between gap-4 px-6 sm:px-8 py-5 bg-gradient-to-r from-success-50/50 to-transparent dark:from-success-500/5 border-b border-surface-100 dark:border-surface-800">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-success-500 to-success-600 dark:from-success-400 dark:to-success-500 flex items-center justify-center shadow-lg shadow-success-500/20">
+                <svg
+                  className="w-5 h-5 text-white"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8.25 6.75h12M8.25 12h12M8.25 17.25h12M3.75 6.75h.007v.008H3.75V6.75Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0ZM3.75 12h.007v.008H3.75V12Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm-.375 5.25h.007v.008H3.75v-.008Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z"
+                  />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-surface-900 dark:text-surface-100">
+                  {lang(t.options)}
+                </h3>
+                <p className="text-xs text-surface-500 dark:text-surface-400 mt-0.5">
+                  {lang(t.optional)} — {lang(t.addOptionGroup)}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={addOptionGroup}
+              className="group relative inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-success-600 to-success-500 hover:from-success-700 hover:to-success-600 text-white shadow-lg shadow-success-500/25 hover:shadow-success-500/40 transition-all duration-300 active:scale-[0.96]"
+            >
+              <svg
+                className="w-4 h-4 transition-transform duration-300 group-hover:rotate-90"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={2.5}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 4.5v15m7.5-7.5h-15"
+                />
+              </svg>
+              <span>{lang(t.addOptionGroup)}</span>
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="p-6 sm:p-8">
+            {options.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <div className="w-16 h-16 rounded-2xl bg-success-50 dark:bg-success-500/5 flex items-center justify-center mb-4">
+                  <svg
+                    className="w-8 h-8 text-success-400 dark:text-success-500"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 9v6m3-3H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </div>
+                <p className="text-sm text-surface-500 dark:text-surface-400">
+                  {lang(t.optional)} — {lang(t.addOptionGroup)}
+                </p>
+                <button
+                  type="button"
+                  onClick={addOptionGroup}
+                  className="mt-4 text-sm font-medium text-success-600 dark:text-success-400 hover:text-success-700 dark:hover:text-success-300 transition-colors"
+                >
+                  + {lang(t.addOptionGroup)}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {options.map((group, groupIndex) => {
+                  const groupErrors =
+                    errors[`options[${groupIndex}].name`] ||
+                    errors[`options[${groupIndex}].values`];
+                  return (
+                    <div
+                      key={groupIndex}
+                      className="group-option bg-surface-50/50 dark:bg-surface-800/30 border border-surface-200 dark:border-surface-700 rounded-2xl overflow-hidden transition-all duration-200 hover:border-success-200 dark:hover:border-success-800"
+                    >
+                      {/* Option Group Header */}
+                      <div className="flex items-center justify-between gap-4 px-5 py-4 bg-white/50 dark:bg-surface-800/50 border-b border-surface-100 dark:border-surface-800">
+                        <div className="flex items-center gap-3">
+                          <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-success-100 dark:bg-success-500/10 text-success-600 dark:text-success-400 text-xs font-bold">
+                            {groupIndex + 1}
+                          </span>
+                          <h4 className="text-sm font-semibold text-surface-700 dark:text-surface-300">
+                            {group.nameAr ||
+                              group.nameEn ||
+                              lang(t.optionGroupName)}
+                          </h4>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeOptionGroup(groupIndex)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-error-600 hover:text-error-700 dark:text-error-400 dark:hover:text-error-300 hover:bg-error-50 dark:hover:bg-error-500/10 transition-all duration-200"
+                        >
+                          <svg
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            strokeWidth={2}
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+                            />
+                          </svg>
+                          {lang(t.removeOptionGroup)}
+                        </button>
+                      </div>
+
+                      {/* Option Group Body */}
+                      <div className="p-5 space-y-5">
+                        {/* Name Fields */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
+                              {lang(t.nameAr)}{" "}
+                              <span className="text-error-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={group.nameAr}
+                              onChange={(e) =>
+                                updateOptionGroup(
+                                  groupIndex,
+                                  "nameAr",
+                                  e.target.value,
+                                )
+                              }
+                              className={cn(
+                                inputClasses(!!groupErrors),
+                                "text-right placeholder:text-surface-300 dark:placeholder:text-surface-600",
+                              )}
+                              placeholder={lang(t.optionNameArPlaceholder)}
+                              dir="rtl"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
+                              {lang(t.nameEn)}{" "}
+                              <span className="text-error-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={group.nameEn}
+                              onChange={(e) =>
+                                updateOptionGroup(
+                                  groupIndex,
+                                  "nameEn",
+                                  e.target.value,
+                                )
+                              }
+                              className={cn(
+                                inputClasses(!!groupErrors),
+                                "text-left placeholder:text-surface-300 dark:placeholder:text-surface-600",
+                              )}
+                              placeholder={lang(t.optionNameEnPlaceholder)}
+                              dir="ltr"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Settings Row */}
+                        <div className="flex flex-wrap items-center gap-4 pt-1">
+                          <label className="flex items-center gap-2.5 cursor-pointer select-none group/check">
+                            <input
+                              type="checkbox"
+                              checked={group.isRequired}
+                              onChange={(e) =>
+                                updateOptionGroup(
+                                  groupIndex,
+                                  "isRequired",
+                                  e.target.checked,
+                                )
+                              }
+                              className="sr-only"
+                            />
+                            <div
+                              className={cn(
+                                "w-5 h-5 rounded-md border-2 transition-all duration-200 flex items-center justify-center",
+                                group.isRequired
+                                  ? "bg-success-600 border-success-600 shadow-sm shadow-success-500/20"
+                                  : "border-surface-300 dark:border-surface-600 hover:border-success-400 dark:hover:border-success-500",
+                              )}
+                            >
+                              {group.isRequired && (
+                                <svg
+                                  className="w-3 h-3 text-white"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  strokeWidth={3}
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M4.5 12.75l6 6 9-13.5"
+                                  />
+                                </svg>
+                              )}
+                            </div>
+                            <span className="text-sm text-surface-700 dark:text-surface-300 group-hover/check:text-surface-900 dark:group-hover/check:text-surface-100 transition-colors">
+                              {lang(t.isRequired)}
+                            </span>
+                          </label>
+
+                          <label className="flex items-center gap-2.5 cursor-pointer select-none group/check">
+                            <input
+                              type="checkbox"
+                              checked={group.isMultiple}
+                              onChange={(e) =>
+                                updateOptionGroup(
+                                  groupIndex,
+                                  "isMultiple",
+                                  e.target.checked,
+                                )
+                              }
+                              className="sr-only"
+                            />
+                            <div
+                              className={cn(
+                                "w-5 h-5 rounded-md border-2 transition-all duration-200 flex items-center justify-center",
+                                group.isMultiple
+                                  ? "bg-success-600 border-success-600 shadow-sm shadow-success-500/20"
+                                  : "border-surface-300 dark:border-surface-600 hover:border-success-400 dark:hover:border-success-500",
+                              )}
+                            >
+                              {group.isMultiple && (
+                                <svg
+                                  className="w-3 h-3 text-white"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  strokeWidth={3}
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M4.5 12.75l6 6 9-13.5"
+                                  />
+                                </svg>
+                              )}
+                            </div>
+                            <span className="text-sm text-surface-700 dark:text-surface-300 group-hover/check:text-surface-900 dark:group-hover/check:text-surface-100 transition-colors">
+                              {lang(t.isMultiple)}
+                            </span>
+                          </label>
+
+                          <div className="flex items-center gap-2 ml-auto">
+                            <label className="text-xs text-surface-500 dark:text-surface-400">
+                              {lang(t.displayOrder)}
+                            </label>
+                            <input
+                              type="number"
+                              value={group.displayOrder}
+                              onChange={(e) =>
+                                updateOptionGroup(
+                                  groupIndex,
+                                  "displayOrder",
+                                  Number(e.target.value),
+                                )
+                              }
+                              className="w-16 px-2 py-1.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-sm text-surface-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-success-500/20 focus:border-success-400 transition-all"
+                              min="0"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Values Section */}
+                        <div className="space-y-3 pt-3 border-t border-surface-200/60 dark:border-surface-700/60">
+                          <div className="flex items-center justify-between">
+                            <h5 className="text-sm font-medium text-surface-700 dark:text-surface-300">
+                              {lang(t.values)}
+                              <span className="ml-2 text-xs font-normal text-surface-400 dark:text-surface-500">
+                                ({group.values.length})
+                              </span>
+                            </h5>
+                            <button
+                              type="button"
+                              onClick={() => addOptionValue(groupIndex)}
+                              className="inline-flex items-center gap-1.5 text-xs font-semibold text-success-600 hover:text-success-700 dark:text-success-400 dark:hover:text-success-300 transition-colors"
+                            >
+                              <svg
+                                className="w-3.5 h-3.5"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth={2.5}
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M12 4.5v15m7.5-7.5h-15"
+                                />
+                              </svg>
+                              {lang(t.addValue)}
+                            </button>
+                          </div>
+
+                          {group.values.length === 0 ? (
+                            <div className="text-center py-6 border-2 border-dashed border-surface-200 dark:border-surface-700 rounded-xl">
+                              <p className="text-xs text-surface-400 dark:text-surface-500">
+                                {lang(t.atLeastOneValue)}
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {group.values.map((value, valueIndex) => (
+                                <div
+                                  key={valueIndex}
+                                  className="flex flex-wrap items-center gap-3 p-4 bg-white dark:bg-surface-800/50 rounded-xl border border-surface-200 dark:border-surface-700 hover:border-success-200 dark:hover:border-success-800 transition-all duration-200"
+                                >
+                                  {/* Value Name AR */}
+                                  <div className="flex-1 min-w-[100px]">
+                                    <label className="block text-[10px] font-medium text-surface-500 dark:text-surface-400 mb-0.5 uppercase tracking-wider">
+                                      {lang(t.valueNameAr)}
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={value.nameAr}
+                                      onChange={(e) =>
+                                        updateOptionValue(
+                                          groupIndex,
+                                          valueIndex,
+                                          "nameAr",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className={cn(
+                                        inputClasses(
+                                          !!errors[
+                                            `options[${groupIndex}].values[${valueIndex}].name`
+                                          ],
+                                        ),
+                                        "py-1.5 px-3 text-sm text-right",
+                                      )}
+                                      placeholder={lang(
+                                        t.valueNameArPlaceholder,
+                                      )}
+                                      dir="rtl"
+                                    />
+                                  </div>
+
+                                  {/* Value Name EN */}
+                                  <div className="flex-1 min-w-[100px]">
+                                    <label className="block text-[10px] font-medium text-surface-500 dark:text-surface-400 mb-0.5 uppercase tracking-wider">
+                                      {lang(t.valueNameEn)}
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={value.nameEn}
+                                      onChange={(e) =>
+                                        updateOptionValue(
+                                          groupIndex,
+                                          valueIndex,
+                                          "nameEn",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className={cn(
+                                        inputClasses(
+                                          !!errors[
+                                            `options[${groupIndex}].values[${valueIndex}].name`
+                                          ],
+                                        ),
+                                        "py-1.5 px-3 text-sm text-left",
+                                      )}
+                                      placeholder={lang(
+                                        t.valueNameEnPlaceholder,
+                                      )}
+                                      dir="ltr"
+                                    />
+                                  </div>
+
+                                  {/* Price */}
+                                  <div className="w-24">
+                                    <label className="block text-[10px] font-medium text-surface-500 dark:text-surface-400 mb-0.5 uppercase tracking-wider">
+                                      {lang(t.valueAdditionalPrice)}
+                                    </label>
+                                    <input
+                                      type="number"
+                                      value={value.additionalPrice || ""}
+                                      onChange={(e) =>
+                                        updateOptionValue(
+                                          groupIndex,
+                                          valueIndex,
+                                          "additionalPrice",
+                                          Number(e.target.value),
+                                        )
+                                      }
+                                      min="0"
+                                      step="0.01"
+                                      className={cn(
+                                        inputClasses(false),
+                                        "py-1.5 px-3 text-sm",
+                                      )}
+                                      placeholder={lang(
+                                        t.valuePricePlaceholder,
+                                      )}
+                                    />
+                                  </div>
+
+                                  {/* Order */}
+                                  <div className="w-16">
+                                    <label className="block text-[10px] font-medium text-surface-500 dark:text-surface-400 mb-0.5 uppercase tracking-wider">
+                                      {lang(t.displayOrder)}
+                                    </label>
+                                    <input
+                                      type="number"
+                                      value={value.displayOrder}
+                                      onChange={(e) =>
+                                        updateOptionValue(
+                                          groupIndex,
+                                          valueIndex,
+                                          "displayOrder",
+                                          Number(e.target.value),
+                                        )
+                                      }
+                                      min="0"
+                                      className={cn(
+                                        inputClasses(false),
+                                        "py-1.5 px-2 text-sm text-center",
+                                      )}
+                                    />
+                                  </div>
+
+                                  {/* Default */}
+                                  <div className="flex items-center">
+                                    <label className="flex items-center gap-1.5 cursor-pointer select-none group/check">
+                                      <input
+                                        type="checkbox"
+                                        checked={value.isDefault}
+                                        onChange={(e) =>
+                                          updateOptionValue(
+                                            groupIndex,
+                                            valueIndex,
+                                            "isDefault",
+                                            e.target.checked,
+                                          )
+                                        }
+                                        className="sr-only"
+                                      />
+                                      <div
+                                        className={cn(
+                                          "w-4 h-4 rounded border-2 transition-all duration-200 flex items-center justify-center",
+                                          value.isDefault
+                                            ? "bg-success-600 border-success-600"
+                                            : "border-surface-300 dark:border-surface-600 hover:border-success-400 dark:hover:border-success-500",
+                                        )}
+                                      >
+                                        {value.isDefault && (
+                                          <svg
+                                            className="w-2.5 h-2.5 text-white"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            strokeWidth={3}
+                                            stroke="currentColor"
+                                          >
+                                            <path
+                                              strokeLinecap="round"
+                                              strokeLinejoin="round"
+                                              d="M4.5 12.75l6 6 9-13.5"
+                                            />
+                                          </svg>
+                                        )}
+                                      </div>
+                                      <span className="text-[10px] font-medium text-surface-500 dark:text-surface-400 uppercase tracking-wider">
+                                        {lang(t.isDefault)}
+                                      </span>
+                                    </label>
+                                  </div>
+
+                                  {/* Remove */}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      removeOptionValue(groupIndex, valueIndex)
+                                    }
+                                    className="self-end p-1.5 rounded-lg text-surface-400 hover:text-error-500 hover:bg-error-50 dark:hover:bg-error-500/10 transition-all duration-200"
+                                    title={lang(t.removeValue)}
+                                  >
+                                    <svg
+                                      className="w-4 h-4"
+                                      fill="none"
+                                      viewBox="0 0 24 24"
+                                      strokeWidth={2}
+                                      stroke="currentColor"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M6 18L18 6M6 6l12 12"
+                                      />
+                                    </svg>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {errors[`options[${groupIndex}].values`] && (
+                            <p className="text-xs text-error-500 mt-1">
+                              {errors[`options[${groupIndex}].values`]}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Settings */}
         <div className="bg-white dark:bg-surface-900 rounded-3xl border border-surface-200 dark:border-surface-800 p-6 sm:p-8 shadow-sm">
           <div className="flex items-center gap-3 mb-6 pb-3 border-b border-surface-100 dark:border-surface-800">
             <div className="w-10 h-10 rounded-xl bg-warning-100 dark:bg-warning-500/10 flex items-center justify-center">
@@ -1199,6 +2003,29 @@ export const MenuItemPage: React.FC = () => {
                   }
                   className={inputClasses(false)}
                   placeholder="6221234567890"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
+                  {lang(t.lowStockThreshold)}{" "}
+                  <span className="font-normal text-surface-400">
+                    ({lang(t.optional)})
+                  </span>
+                </label>
+                <input
+                  type="number"
+                  value={form.lowStockThreshold || ""}
+                  onChange={(e) =>
+                    updateField(
+                      "lowStockThreshold",
+                      e.target.value ? Number(e.target.value) : undefined,
+                    )
+                  }
+                  min="0"
+                  className={inputClasses(false)}
+                  placeholder="5"
                 />
               </div>
             </div>

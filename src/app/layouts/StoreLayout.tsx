@@ -1720,15 +1720,17 @@ export const StoreLayout: React.FC = () => {
   }, [store, hasCheckedStoreTypes]);
 
   useEffect(() => {
-    if (store && hasCheckedStoreTypes) {
+    if (store && showStoreTypeModal) {
       const approvedTypes = (store as any)?.approvedTypes;
+      const pendingTypes = (store as any)?.pendingTypes;
       const hasApprovedTypes = approvedTypes && approvedTypes.length > 0;
+      const hasPendingTypes = pendingTypes && pendingTypes.length > 0;
 
-      if (hasApprovedTypes && showStoreTypeModal) {
+      if (hasApprovedTypes || hasPendingTypes) {
         setShowStoreTypeModal(false);
       }
     }
-  }, [store, hasCheckedStoreTypes, showStoreTypeModal]);
+  }, [store, showStoreTypeModal]);
 
   const handleCloseNewOrderModal = () => {
     setIsNewOrderModalOpen(false);
@@ -1797,7 +1799,7 @@ export const StoreLayout: React.FC = () => {
         )}
       >
         <Navbar onMenuClick={() => setMobileOpen(true)} />
-        <main id="main-content" className="flex-1 overflow-y-auto">
+        <main id="main-content" className="flex-1">
           <div className="p-3 sm:p-5 lg:p-8 max-w-[1600px] mx-auto">
             <Suspense
               fallback={

@@ -123,7 +123,8 @@ const GroupDealForm: React.FC<GroupDealFormProps> = ({
   const toast = useToast();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [discountPercentage, setDiscountPercentage] = useState("");
+  const [discountValue, setDiscountValue] = useState("");
+  const [discountError, setDiscountError] = useState<string | null>(null);
   const [validFrom, setValidFrom] = useState(
     new Date().toISOString().split("T")[0],
   );
@@ -161,15 +162,33 @@ const GroupDealForm: React.FC<GroupDealFormProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setDiscountError(null);
+
     if (!name.trim()) {
       toast.error(lang(t.nameRequired));
+      return;
+    }
+
+    const parsedDiscount = parseInt(discountValue, 10);
+    if (isNaN(parsedDiscount) || parsedDiscount < 1 || parsedDiscount > 100) {
+      setDiscountError(
+        isAr
+          ? "نسبة الخصم يجب أن تكون بين 1 و 100"
+          : "Discount percentage must be between 1 and 100",
+      );
+      return;
+    }
+
+    if (!validTo) {
+      toast.error(isAr ? "تاريخ النهاية مطلوب" : "End date is required");
       return;
     }
 
     const dto: CreateGroupDealDto = {
       name: name.trim(),
       description: description.trim() || undefined,
-      discountPercentage: parseFloat(discountPercentage) || 0,
+      discountType: "Percentage",
+      discountValue: parsedDiscount,
       validFrom: new Date(validFrom).toISOString(),
       validTo: new Date(validTo).toISOString(),
       items: items.length > 0 ? items : undefined,
@@ -268,17 +287,26 @@ const GroupDealForm: React.FC<GroupDealFormProps> = ({
                 {lang(t.discountPercentage)}
               </label>
               <input
-                value={discountPercentage}
-                onChange={(e) => setDiscountPercentage(e.target.value)}
+                value={discountValue}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "" || /^\d+$/.test(val)) {
+                    setDiscountValue(val);
+                    setDiscountError(null);
+                  }
+                }}
                 placeholder={lang(t.discountPlaceholder)}
                 required
                 type="number"
-                min="0"
+                min="1"
                 max="100"
-                step="0.01"
+                step="1"
                 className={inputClasses}
               />
             </div>
+            {discountError && (
+              <p className="text-xs text-error-500 mt-1">{discountError}</p>
+            )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -544,8 +572,13 @@ export const OffersPage: React.FC = () => {
       await createDeal.mutateAsync(dto);
       toast.success(lang(t.created));
       setShowForm(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : lang(t.error));
+    } catch (err: any) {
+      const serverMessage =
+        err?.response?.data?.Message ||
+        err?.response?.data?.message ||
+        err?.message ||
+        lang(t.error);
+      toast.error(serverMessage);
     }
   };
 

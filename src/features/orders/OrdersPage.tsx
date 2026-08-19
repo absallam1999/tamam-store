@@ -5,6 +5,7 @@ import { useToast } from "@shared/components/Toaster";
 import { cn } from "@shared/utils/cn";
 import { formatCurrency, getRelativeTime } from "@shared/utils/formatters";
 import {
+  useStoreOrder,
   useStoreOrders,
   useStoreOrderStats,
   useUpdateOrderStatus,
@@ -140,6 +141,165 @@ const getStatusConfig = (isAr: boolean) => ({
     dot: "bg-error-500",
   },
 });
+
+// ============================================================
+// Order Item Expanded
+// ============================================================
+
+const OrderItemsExpanded: React.FC<{
+  orderId: string;
+  items: any[];
+  isAr: boolean;
+}> = ({ orderId, items, isAr }) => {
+  // Fetch full order details (includes options)
+  const { data: fullOrder } = useStoreOrder(orderId);
+
+  // Use full order items if available, otherwise fallback to list items
+  const displayItems = fullOrder?.items || items;
+
+  return (
+    <div className="space-y-2">
+      {displayItems.map((item, idx) => {
+        const productName = isAr
+          ? item.productNameAr || item.productNameEn || ""
+          : item.productNameEn || item.productNameAr || "";
+
+        // Parse options
+        let parsedOptions: any[] = [];
+        try {
+          if (typeof item.options === "string" && item.options.trim()) {
+            const parsed = JSON.parse(item.options);
+            parsedOptions = Array.isArray(parsed) ? parsed : [parsed];
+          } else if (Array.isArray(item.options)) {
+            parsedOptions = item.options;
+          } else if (item.options && typeof item.options === "object") {
+            parsedOptions = [item.options];
+          }
+        } catch {
+          parsedOptions = [];
+        }
+
+        // Format options for display
+        const formatOptionDisplay = (opt: any): string => {
+          if (typeof opt === "string") return opt;
+          if (!opt || typeof opt !== "object") return "";
+
+          const optionName = isAr
+            ? opt.nameAr ||
+              opt.optionNameAr ||
+              opt.name ||
+              opt.optionName ||
+              opt.groupName ||
+              ""
+            : opt.nameEn ||
+              opt.optionNameEn ||
+              opt.name ||
+              opt.optionName ||
+              opt.groupName ||
+              "";
+
+          let values: string[] = [];
+
+          if (Array.isArray(opt.values)) {
+            values = opt.values
+              .map((v: any) => {
+                if (typeof v === "string") return v;
+                return isAr
+                  ? v?.nameAr || v?.valueNameAr || v?.name || v?.valueName || ""
+                  : v?.nameEn ||
+                      v?.valueNameEn ||
+                      v?.name ||
+                      v?.valueName ||
+                      "";
+              })
+              .filter(Boolean);
+          } else if (opt.valueName) {
+            values = [opt.valueName];
+          } else if (opt.value) {
+            if (typeof opt.value === "string") {
+              values = [opt.value];
+            } else {
+              values = [
+                isAr
+                  ? opt.value.nameAr || opt.value.name || ""
+                  : opt.value.nameEn || opt.value.name || "",
+              ];
+            }
+          } else if (opt.selectedValueName) {
+            values = [opt.selectedValueName];
+          } else if (opt.selectedValues && Array.isArray(opt.selectedValues)) {
+            values = opt.selectedValues
+              .map((v: any) => {
+                if (typeof v === "string") return v;
+                return isAr
+                  ? v?.nameAr || v?.valueNameAr || v?.name || v?.valueName || ""
+                  : v?.nameEn ||
+                      v?.valueNameEn ||
+                      v?.name ||
+                      v?.valueName ||
+                      "";
+              })
+              .filter(Boolean);
+          }
+
+          if (optionName && values.length > 0) {
+            return `${optionName}: ${values.join(", ")}`;
+          }
+          if (values.length > 0) return values.join(", ");
+          return optionName;
+        };
+
+        const optionsDisplay = parsedOptions
+          .map(formatOptionDisplay)
+          .filter(Boolean)
+          .join(" | ");
+
+        return (
+          <div key={item.productId || idx} className="text-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-md bg-surface-100 dark:bg-surface-800 text-xs font-bold text-surface-500 dark:text-surface-400 flex-shrink-0">
+                  {item.quantity}×
+                </span>
+                <span className="text-surface-700 dark:text-surface-300 truncate">
+                  {productName}
+                </span>
+              </div>
+              <span className="text-surface-600 dark:text-surface-400 font-medium flex-shrink-0 ml-4 tabular-nums">
+                {formatCurrency(item.quantity * item.unitPrice)}
+              </span>
+            </div>
+
+            {/* Options Display */}
+            {optionsDisplay && (
+              <div
+                className={cn(
+                  "mt-1 text-xs text-surface-500 dark:text-surface-400 flex items-start gap-1.5",
+                  isAr ? "pr-8" : "pl-8",
+                )}
+              >
+                <svg
+                  className="w-3 h-3 flex-shrink-0 mt-0.5 text-surface-400 dark:text-surface-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <span>{optionsDisplay}</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 // ============================================================
 // Main Page Component
@@ -742,34 +902,11 @@ export const OrdersPage: React.FC = () => {
                 {/* Expandable Items List */}
                 {isExpanded && itemCount > 0 && (
                   <div className="border-t border-surface-100 dark:border-surface-800 bg-surface-50/50 dark:bg-surface-800/20 px-5 py-3">
-                    <div className="space-y-2">
-                      {order.items.map((item, idx) => {
-                        // Get product name based on app language
-                        const productName = isAr
-                          ? item.productNameAr || item.productNameEn || ""
-                          : item.productNameEn || item.productNameAr || "";
-
-                        return (
-                          <div
-                            key={item.productId || idx}
-                            className="flex items-center justify-between text-sm"
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-md bg-surface-100 dark:bg-surface-800 text-xs font-bold text-surface-500 dark:text-surface-400 flex-shrink-0">
-                                {item.quantity}
-                                {lang(t.x)}
-                              </span>
-                              <span className="text-surface-700 dark:text-surface-300 truncate">
-                                {productName}
-                              </span>
-                            </div>
-                            <span className="text-surface-600 dark:text-surface-400 font-medium flex-shrink-0 ml-4 tabular-nums">
-                              {formatCurrency(item.quantity * item.unitPrice)}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <OrderItemsExpanded
+                      orderId={order.id}
+                      items={order.items}
+                      isAr={isAr}
+                    />
                   </div>
                 )}
               </div>
