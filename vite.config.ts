@@ -24,10 +24,10 @@ export default defineConfig({
     proxy: {
       "/api": {
         // DEV
-        target: 'http://tamam.runasp.net',
+        // target: 'http://tamam.runasp.net',
 
         // PRO
-        // target: "http://api.tamaam.cloud",
+        target: "https://api.tamaam.cloud",
 
         changeOrigin: true,
         secure: false,
