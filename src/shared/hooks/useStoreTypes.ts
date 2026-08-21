@@ -6,6 +6,7 @@ import { storeApi } from "../../config/storeApi";
 export const STORE_TYPES_KEY = "storeTypes";
 export const AVAILABLE_STORE_TYPES_KEY = "availableStoreTypes";
 export const STORE_CATEGORIES_KEY = "storeCategories";
+export const PUBLIC_STORE_CATEGORIES_KEY = "publicStoreCategories";
 
 // ----------------------------------------------------------------------
 // Helpers
@@ -41,12 +42,31 @@ export const useStoreTypes = () => {
 
 /**
  * Fetch available categories (GET /api/store/categories/available)
+ * Used in authenticated store dashboard.
  */
 export const useStoreCategories = () => {
   return useQuery<StoreCategoryDto[]>({
     queryKey: [STORE_CATEGORIES_KEY],
     queryFn: async () => {
       const response = await storeApi.getAvailableCategories();
+      const data = unwrap<any>(response);
+      if (data?.items) return data.items as StoreCategoryDto[];
+      if (Array.isArray(data)) return data as StoreCategoryDto[];
+      return [];
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+};
+
+/**
+ * Fetch public store categories (GET /api/browse/store-categories)
+ * No authentication required — used on the registration page.
+ */
+export const usePublicStoreCategories = () => {
+  return useQuery<StoreCategoryDto[]>({
+    queryKey: [PUBLIC_STORE_CATEGORIES_KEY],
+    queryFn: async () => {
+      const response = await storeApi.getPublicStoreCategories();
       const data = unwrap<any>(response);
       if (data?.items) return data.items as StoreCategoryDto[];
       if (Array.isArray(data)) return data as StoreCategoryDto[];

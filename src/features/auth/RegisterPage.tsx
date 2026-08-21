@@ -4,7 +4,7 @@ import { useAuth } from "@app/providers/AuthProvider";
 import { useLanguage } from "@shared/hooks/useLanguage";
 import { useToast } from "@shared/components/Toaster";
 import { cn } from "@shared/utils/cn";
-import { useStoreCategories } from "@shared/hooks/useStoreTypes";
+import { usePublicStoreCategories } from "@shared/hooks/useStoreTypes";
 import { apiClient } from "@/lib/api-client";
 
 // ============================================
@@ -26,6 +26,7 @@ interface ValidationErrors {
   fullName?: string;
   phoneNumber?: string;
   email?: string;
+  types?: string;
   acceptTerms?: string;
 }
 
@@ -146,7 +147,7 @@ export const RegisterPage: React.FC = () => {
 
   // Fetch store categories from API
   const { data: storeCategories = [], isLoading: isLoadingTypes } =
-    useStoreCategories();
+    usePublicStoreCategories();
 
   // Cities state
   const [cities, setCities] = useState<CityOption[]>([]);
@@ -162,7 +163,6 @@ export const RegisterPage: React.FC = () => {
     note: "",
     acceptTerms: false,
   });
-  const [typesTouched, setTypesTouched] = useState(false);
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>(
@@ -242,7 +242,12 @@ export const RegisterPage: React.FC = () => {
         ? prev.filter((t) => t !== typeId)
         : [...prev, typeId],
     );
-    setTypesTouched(true);
+    // Clear types error as soon as user selects/deselects
+    setValidationErrors((prev) => {
+      const updated = { ...prev };
+      delete updated.types;
+      return updated;
+    });
   };
 
   const validateForm = (): boolean => {
@@ -262,7 +267,7 @@ export const RegisterPage: React.FC = () => {
       errors.email = lang(t.validation.emailInvalid);
 
     if (selectedTypes.length === 0)
-      errors.phoneNumber = lang(t.validation.typesRequired);
+      errors.types = lang(t.validation.typesRequired);
 
     if (!formData.acceptTerms)
       errors.acceptTerms = lang(t.validation.termsRequired);
@@ -272,17 +277,39 @@ export const RegisterPage: React.FC = () => {
     return Object.keys(errors).length === 0;
   };
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
-    e.preventDefault();
-    setTouchedFields({ fullName: true, phoneNumber: true, acceptTerms: true });
+  const handleSubmit = async (): Promise<void> => {
+    setTouchedFields({
+      fullName: true,
+      phoneNumber: true,
+      acceptTerms: true,
+      types: true,
+    });
 
-    if (!validateForm()) return;
+    // Extra guard for empty types
+    if (selectedTypes.length === 0) {
+      setValidationErrors((prev) => ({
+        ...prev,
+        types: lang(t.validation.typesRequired),
+      }));
+      setTouchedFields((prev) => ({ ...prev, types: true }));
+      toast.error(
+        isAr ? "يرجى اختيار نوع المتجر" : "Please select a store type",
+      );
+      return;
+    }
+
+    const isValid = validateForm();
+    if (!isValid) {
+      toast.error(
+        isAr ? "يرجى تصحيح الحقول المطلوبة" : "Please fix the required fields",
+      );
+      return;
+    }
 
     setIsSubmitting(true);
     setServerError(null);
 
     try {
-      // Build the request payload matching CreateRequestDto
       const payload = {
         name: formData.fullName.trim(),
         phoneNumber: formData.phoneNumber.trim(),
@@ -294,14 +321,13 @@ export const RegisterPage: React.FC = () => {
         types: selectedTypes,
       };
 
-      console.log("🔍 Submitting store request:", payload);
-
       await submitStoreRequest(payload);
 
       setIsSuccess(true);
-      toast.success(lang(t.successTitle));
+      toast.success(lang(t.successTitle), {
+        description: lang(t.successMessage),
+      });
     } catch (error: any) {
-      console.error("❌ Submit error:", error);
       const message =
         error?.response?.data?.message ||
         error?.message ||
@@ -309,6 +335,7 @@ export const RegisterPage: React.FC = () => {
           ? error.message
           : lang(t.submitting) + " failed");
       setServerError(message);
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -432,7 +459,12 @@ export const RegisterPage: React.FC = () => {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} noValidate className="space-y-4">
+      <form
+        onSubmit={(e) => e.preventDefault()}
+        noValidate
+        className="space-y-4"
+      >
+        {" "}
         {/* Full Name */}
         <div className="space-y-1.5">
           <label
@@ -462,7 +494,6 @@ export const RegisterPage: React.FC = () => {
             </p>
           )}
         </div>
-
         {/* Phone Number */}
         <div className="space-y-1.5">
           <label
@@ -509,7 +540,6 @@ export const RegisterPage: React.FC = () => {
               : "Enter Egyptian phone number (11 digits after +20)"}
           </p>
         </div>
-
         {/* Email (optional) */}
         <div className="space-y-1.5">
           <label
@@ -540,7 +570,6 @@ export const RegisterPage: React.FC = () => {
             </p>
           )}
         </div>
-
         {/* Brand Name */}
         <div className="space-y-1.5">
           <label
@@ -562,7 +591,6 @@ export const RegisterPage: React.FC = () => {
             )}
           />
         </div>
-
         {/* City (select) + Address (text input) */}
         <div className="grid grid-cols-2 gap-3">
           {/* City Select */}
@@ -652,7 +680,6 @@ export const RegisterPage: React.FC = () => {
             />
           </div>
         </div>
-
         {/* Store Types - Fetched from API */}
         <div className="space-y-2">
           <label className="block text-sm font-medium text-surface-700 dark:text-surface-300">
@@ -715,13 +742,12 @@ export const RegisterPage: React.FC = () => {
             </div>
           )}
 
-          {selectedTypes.length === 0 && typesTouched && (
-            <p className="text-xs text-error-500 dark:text-error-400">
-              {lang(t.validation.typesRequired)}
+          {validationErrors.types && touchedFields.types && (
+            <p className="text-xs text-error-500 dark:text-error-400 mt-1">
+              {validationErrors.types}
             </p>
           )}
         </div>
-
         {/* Note */}
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-surface-700 dark:text-surface-300">
@@ -740,7 +766,6 @@ export const RegisterPage: React.FC = () => {
             )}
           />
         </div>
-
         {/* Terms */}
         <label className="flex items-start gap-2.5 cursor-pointer select-none group">
           <input
@@ -776,21 +801,23 @@ export const RegisterPage: React.FC = () => {
           </div>
           <span className="text-sm text-surface-600 dark:text-surface-400">
             {lang(t.acceptTerms)}{" "}
-            <Link
-              to="https://tamaam.cloud/terms"
+            <a
+              href="https://tamaam.cloud/terms"
               target="_blank"
+              rel="noopener noreferrer"
               className="font-medium text-primary-600 dark:text-primary-400 hover:underline"
             >
               {lang(t.termsOfService)}
-            </Link>{" "}
+            </a>{" "}
             {lang(t.and)}{" "}
-            <Link
-              to="https://tamaam.cloud/privacy"
+            <a
+              href="https://tamaam.cloud/privacy"
               target="_blank"
+              rel="noopener noreferrer"
               className="font-medium text-primary-600 dark:text-primary-400 hover:underline"
             >
               {lang(t.privacyPolicy)}
-            </Link>
+            </a>
           </span>
         </label>
         {validationErrors.acceptTerms && touchedFields.acceptTerms && (
@@ -798,13 +825,14 @@ export const RegisterPage: React.FC = () => {
             {validationErrors.acceptTerms}
           </p>
         )}
-
         {/* Submit */}
         <button
-          type="submit"
-          disabled={isSubmitting}
+          type="button" // <-- critical change
+          onClick={handleSubmit}
+          disabled={isSubmitting || selectedTypes.length === 0}
           className={cn(
             "w-full py-3 px-6 rounded-xl text-white font-semibold text-sm bg-primary-600 hover:bg-primary-700 shadow-lg shadow-primary-600/25 transition-all duration-200 disabled:opacity-60 active:scale-[0.98] flex items-center justify-center gap-2.5",
+            selectedTypes.length === 0 && "cursor-not-allowed",
           )}
         >
           {isSubmitting ? (

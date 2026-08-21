@@ -145,6 +145,7 @@ export interface StoreCategoryDto {
   descriptionAr?: string;
   descriptionEn?: string;
   iconUrl?: string;
+  imageUrl?: string;
   displayOrder: number;
   isActive: boolean;
 }

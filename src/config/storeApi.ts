@@ -68,6 +68,9 @@ export const storeApi = {
       .get<StoreTypeMappingDto[]>(ENDPOINTS.STORE.TYPES)
       .then((r) => r.data),
 
+  getPublicStoreCategories: () =>
+    apiClient.get<any[]>(ENDPOINTS.BROWSE.STORE_CATEGORIES).then((r) => r.data),
+
   getAvailableStoreTypes: () =>
     apiClient
       .get<StoreTypeDto[]>(ENDPOINTS.STORE.TYPES_AVAILABLE)

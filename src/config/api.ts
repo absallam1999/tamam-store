@@ -130,6 +130,13 @@ export const ENDPOINTS = {
   },
 
   // ============================================
+  // Public Browse Endpoints
+  // ============================================
+  BROWSE: {
+    STORE_CATEGORIES: "/api/browse/store-categories",
+  },
+
+  // ============================================
   // Notifications (authenticated)
   // ============================================
   NOTIFICATIONS: {
