@@ -45,6 +45,9 @@ export const storeApi = {
   toggleOpen: (isOpen: boolean) =>
     apiClient.patch<void>(ENDPOINTS.STORE.TOGGLE_OPEN, { isOpen }),
 
+  toggleBusy: (isBusy: boolean) =>
+    apiClient.patch<void>(ENDPOINTS.STORE.TOGGLE_BUSY, { isBusy }),
+
   uploadLogo: (formData: FormData) =>
     apiClient
       .post<{ url: string }>(ENDPOINTS.STORE.LOGO, formData, {
@@ -312,16 +315,19 @@ export const storeApi = {
     apiClient.post<void>(ENDPOINTS.STORE.ORDER_ACCEPT(orderId)),
 
   rejectOrder: (orderId: string, reason?: string) =>
-    apiClient.post<void>(ENDPOINTS.STORE.ORDER_REJECT(orderId), { reason }),
+    apiClient.post<void>(ENDPOINTS.STORE.ORDER_REJECT(orderId), reason ?? ""),
 
   cancelOrder: (orderId: string, reason: string) =>
-    apiClient.post<void>(ENDPOINTS.STORE.ORDER_CANCEL(orderId), reason),
+    apiClient.post<void>(ENDPOINTS.STORE.ORDER_CANCEL(orderId), reason ?? ""),
 
   updateOrderStatus: (orderId: string, dto: UpdateOrderStatusDto) =>
     apiClient.put<void>(ENDPOINTS.STORE.ORDER_STATUS(orderId), dto),
 
   readyForDriver: (orderId: string) =>
     apiClient.post<void>(ENDPOINTS.STORE.ORDER_READY_FOR_DRIVER(orderId)),
+
+  outForDelivery: (orderId: string) =>
+    apiClient.post<void>(ENDPOINTS.STORE.ORDER_OUT_FOR_DELIVERY(orderId)),
 
   orderPickedUp: (orderId: string) =>
     apiClient.post<void>(ENDPOINTS.STORE.ORDER_PICKED_UP(orderId)),

@@ -34,6 +34,7 @@ export const ENDPOINTS = {
     // Profile
     PROFILE: "/api/store/profile",
     TOGGLE_OPEN: "/api/store/toggle-open",
+    TOGGLE_BUSY: "/api/store/toggle-busy",
     LOGO: "/api/store/logo",
     COVER: "/api/store/cover",
     OWN_DRIVER: "/api/store/own-driver",

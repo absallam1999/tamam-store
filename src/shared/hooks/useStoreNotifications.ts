@@ -17,6 +17,11 @@ export interface NotificationDto {
   link?: string;
 }
 
+interface NotificationsResponse {
+  notifications: NotificationDto[];
+  totalCount: number;
+}
+
 function unwrap<T>(response: unknown): T {
   if (response && typeof response === "object" && "data" in response) {
     return (response as Record<string, unknown>).data as T;
@@ -64,22 +69,34 @@ function parseLink(dataJson: string | null): string | undefined {
 /**
  * GET /api/notifications?page=&pageSize=
  */
+
 export const useNotifications = (page = 1, pageSize = 5) => {
-  return useQuery<NotificationDto[]>({
+  return useQuery<NotificationsResponse>({
     queryKey: [NOTIFICATIONS_KEY, page, pageSize],
     queryFn: async () => {
       const url = `${ENDPOINTS.NOTIFICATIONS.BASE}?page=${page}&pageSize=${pageSize}`;
       const response = await apiClient.get(url);
       const result = unwrap<any>(response.data || response);
 
+      // Extract notifications array
       const notifications: NotificationDto[] = Array.isArray(result)
         ? result
         : ((result as any)?.notifications ?? (result as any)?.items ?? []);
 
-      return notifications.map((n) => ({
-        ...n,
-        link: parseLink(n.dataJson),
-      }));
+      // Extract total count
+      const totalCount =
+        (result as any)?.totalCount ??
+        (result as any)?.total ??
+        (result as any)?.meta?.total ??
+        notifications.length; // fallback
+
+      return {
+        notifications: notifications.map((n) => ({
+          ...n,
+          link: parseLink(n.dataJson),
+        })),
+        totalCount,
+      };
     },
     staleTime: 30_000,
   });
@@ -93,7 +110,9 @@ export const useUnreadCount = () => {
   return useQuery<number>({
     queryKey: [UNREAD_COUNT_KEY],
     queryFn: async () => {
-      const response = await apiClient.get(ENDPOINTS.NOTIFICATIONS.UNREAD_COUNT);
+      const response = await apiClient.get(
+        ENDPOINTS.NOTIFICATIONS.UNREAD_COUNT,
+      );
       const result = unwrap<any>(response.data || response);
 
       // Handle different response shapes

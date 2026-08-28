@@ -37,6 +37,7 @@ export interface StoreProfile {
   deliveryFee: number;
   estimatedPreparationMinutes: number;
   isOpen: boolean;
+  isBusy: boolean;
   isVerified: boolean;
   rating: number;
   reviewCount: number;
@@ -46,8 +47,10 @@ interface StoreContextValue {
   store: StoreProfile | null;
   isLoading: boolean;
   isOpen: boolean;
+  isBusy: boolean;
   isActive: boolean;
   toggleStoreStatus: () => Promise<void>;
+  toggleBusy: () => Promise<void>;
   refreshStore: () => Promise<void>;
   updateStore: (dto: Partial<StoreProfile>) => Promise<void>;
   error: string | null;
@@ -60,9 +63,6 @@ const StoreContext = createContext<StoreContextValue | undefined>(undefined);
 // Helpers
 // ============================================================
 
-/**
- * Unwraps the API response wrapper { success, data, message, ... }
- */
 function unwrap<T>(response: unknown): T {
   if (response && typeof response === "object" && "data" in response) {
     return (response as Record<string, unknown>).data as T;
@@ -87,6 +87,7 @@ export const StoreProvider: React.FC<StoreProviderProps> = ({ children }) => {
 
   // Derived state
   const isOpen = store?.isOpen ?? false;
+  const isBusy = store?.isBusy ?? false;
   const isActive = store?.isVerified ?? false;
 
   const getStoreName = useCallback((): string => {
@@ -139,13 +140,30 @@ export const StoreProvider: React.FC<StoreProviderProps> = ({ children }) => {
   }, [store]);
 
   // ============================================================
+  // Toggle Busy/Free
+  // ============================================================
+  const toggleBusy = useCallback(async (): Promise<void> => {
+    if (!store) return;
+    const newIsBusy = !store.isBusy;
+
+    // Optimistic update
+    setStore((prev) => (prev ? { ...prev, isBusy: newIsBusy } : prev));
+
+    try {
+      await apiClient.patch(ENDPOINTS.STORE.TOGGLE_BUSY, { isBusy: newIsBusy });
+    } catch {
+      // Rollback on failure
+      setStore((prev) => (prev ? { ...prev, isBusy: !newIsBusy } : prev));
+    }
+  }, [store]);
+
+  // ============================================================
   // Update Store Profile
   // ============================================================
   const updateStore = useCallback(
     async (dto: Partial<StoreProfile>): Promise<void> => {
       if (!store) return;
 
-      // Optimistic update
       const previous = { ...store };
       setStore((prev) => (prev ? { ...prev, ...dto } : prev));
 
@@ -159,7 +177,6 @@ export const StoreProvider: React.FC<StoreProviderProps> = ({ children }) => {
           setStore(updated);
         }
       } catch {
-        // Rollback
         setStore(previous);
       }
     },
@@ -186,8 +203,10 @@ export const StoreProvider: React.FC<StoreProviderProps> = ({ children }) => {
       store,
       isLoading,
       isOpen,
+      isBusy,
       isActive,
       toggleStoreStatus,
+      toggleBusy,
       refreshStore,
       updateStore,
       error,
@@ -197,8 +216,10 @@ export const StoreProvider: React.FC<StoreProviderProps> = ({ children }) => {
       store,
       isLoading,
       isOpen,
+      isBusy,
       isActive,
       toggleStoreStatus,
+      toggleBusy,
       refreshStore,
       updateStore,
       error,

@@ -51,9 +51,6 @@ function unwrap<T>(response: unknown): T {
 // Status Mapping — Frontend ↔ API
 // ============================================================
 
-/**
- * Map frontend status to API OrderStatus enum value
- */
 const frontendToApiStatus = (frontendStatus: string): string => {
   const map: Record<string, string> = {
     pending: "Pending",
@@ -61,15 +58,14 @@ const frontendToApiStatus = (frontendStatus: string): string => {
     preparing: "Preparing",
     ready: "ReadyForDriver",
     picked_up: "PickedUp",
+    in_transit: "InTransit",
+    out_for_delivery: "OutForDelivery",
     delivered: "Delivered",
     cancelled: "Cancelled",
   };
   return map[frontendStatus] || frontendStatus;
 };
 
-/**
- * Map API OrderStatus enum value to frontend status
- */
 const apiToFrontendStatus = (apiStatus: string): StoreOrderDto["status"] => {
   const map: Record<string, StoreOrderDto["status"]> = {
     Pending: "pending",
@@ -80,11 +76,11 @@ const apiToFrontendStatus = (apiStatus: string): StoreOrderDto["status"] => {
     DriverAssigned: "accepted",
     PickedUp: "picked_up",
     InTransit: "picked_up",
+    OutForDelivery: "picked_up", // optionally map to picked_up or a new status
     Delivered: "delivered",
     Cancelled: "cancelled",
     Failed: "cancelled",
     Placed: "pending",
-    OutForDelivery: "picked_up",
     NotAccepted: "cancelled",
     Returned: "cancelled",
     AwaitingConfirmation: "pending",
@@ -94,9 +90,6 @@ const apiToFrontendStatus = (apiStatus: string): StoreOrderDto["status"] => {
   return map[apiStatus] || "pending";
 };
 
-/**
- * Normalize a raw order from the API to StoreOrderDto
- */
 function normalizeOrder(raw: any): StoreOrderDto {
   return {
     id: raw.id || "",
@@ -105,42 +98,24 @@ function normalizeOrder(raw: any): StoreOrderDto {
     customerPhone: raw.customerPhone || "",
     status: apiToFrontendStatus(raw.status || "Pending"),
     items: (raw.items || []).map((item: any) => {
-      // Try multiple possible option field names
       let options = null;
+      if (item.selectedOptions) options = item.selectedOptions;
+      else if (item.options) options = item.options;
+      else if (item.optionGroups) options = item.optionGroups;
+      else if (item.orderItemOptions) options = item.orderItemOptions;
+      else if (item.productOptions) options = item.productOptions;
+      else if (item.variations) options = item.variations;
+      else if (item.customizations) options = item.customizations;
+      else if (item.selectedOptionValues) options = item.selectedOptionValues;
+      else if (item.optionValues) options = item.optionValues;
 
-      // Check all possible API field names for options
-      if (item.selectedOptions) {
-        options = item.selectedOptions;
-      } else if (item.options) {
-        options = item.options;
-      } else if (item.optionGroups) {
-        options = item.optionGroups;
-      } else if (item.orderItemOptions) {
-        options = item.orderItemOptions;
-      } else if (item.productOptions) {
-        options = item.productOptions;
-      } else if (item.variations) {
-        options = item.variations;
-      } else if (item.customizations) {
-        options = item.customizations;
-      } else if (item.selectedOptionValues) {
-        options = item.selectedOptionValues;
-      } else if (item.optionValues) {
-        options = item.optionValues;
-      }
-
-      // If options is a string, try to parse it
       if (typeof options === "string" && options.trim()) {
         try {
-          const parsed = JSON.parse(options);
-          options = parsed;
+          options = JSON.parse(options);
         } catch {
-          // Keep as string if parsing fails
           options = [{ valueName: options }];
         }
       }
-
-      // If options is empty array or empty string, set to null
       if (
         options === "" ||
         (Array.isArray(options) && options.length === 0) ||
@@ -199,7 +174,6 @@ export const useStoreOrders = (filters?: {
       const response = await storeApi.getOrders(filters?.status);
       const data = unwrap<any>(response);
 
-      // Handle { active: [...], completed: [...] } structure
       let allOrders: any[] = [];
       if (data?.active || data?.completed) {
         allOrders = [...(data.active || []), ...(data.completed || [])];
@@ -208,12 +182,11 @@ export const useStoreOrders = (filters?: {
       } else if (data?.items) {
         allOrders = data.items;
       }
-
       return allOrders.map(normalizeOrder);
     },
-    staleTime: 0, // Always stale
-    refetchOnMount: true, // Refetch on mount
-    refetchOnWindowFocus: true, // Refetch when tab focuses
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
 };
 
@@ -221,48 +194,26 @@ export const useStoreOrder = (orderId: string) => {
   return useQuery<StoreOrderDto>({
     queryKey: orderKeys.detail(orderId),
     queryFn: async () => {
-      if (!orderId) {
-        throw new Error("No order ID provided");
-      }
-
-      // Call the API
+      if (!orderId) throw new Error("No order ID provided");
       const response = await storeApi.getOrder(orderId);
-
-      // Manual unwrapping
       let data: any = response;
-
-      // Check if response has a 'data' property (axios/fetch wrapper)
       if (data && typeof data === "object" && "data" in data) {
         data = data.data;
       }
-
-      // Check for API wrapper { success, data, message }
       if (
         data &&
         typeof data === "object" &&
         ("success" in data || "Success" in data)
       ) {
-        if (data.data) {
-          data = data.data;
-        }
+        if (data.data) data = data.data;
       }
-
-      if (!data) {
-        throw new Error("Order not found");
-      }
-
-      // If data is an array, get first element
-      if (Array.isArray(data)) {
-        data = data[0];
-      }
-
-      const normalized = normalizeOrder(data);
-
-      return normalized;
+      if (!data) throw new Error("Order not found");
+      if (Array.isArray(data)) data = data[0];
+      return normalizeOrder(data);
     },
     enabled: !!orderId,
-    staleTime: 0, // Always consider data stale
-    refetchOnMount: true, // Always refetch when component mounts
+    staleTime: 0,
+    refetchOnMount: true,
     retry: 1,
   });
 };
@@ -273,9 +224,7 @@ export const useStoreOrderStats = () => {
     queryFn: async () => {
       const response: any = await storeApi.getOrderStats();
       let data: any = response?.data || response;
-      if (data?.success !== undefined && data?.data) {
-        data = data.data;
-      }
+      if (data?.success !== undefined && data?.data) data = data.data;
 
       const pendingOrders = Number(data?.pending ?? 0);
       const activeOrders =
@@ -310,13 +259,12 @@ const useInvalidateOrderQueries = () => {
     qc.invalidateQueries({ queryKey: orderKeys.stats() });
     if (orderId) {
       qc.invalidateQueries({ queryKey: orderKeys.detail(orderId) });
-      // Force immediate refetch of the specific order
       qc.refetchQueries({ queryKey: orderKeys.detail(orderId) });
     }
-    // Also refetch the lists
     qc.refetchQueries({ queryKey: orderKeys.lists() });
   };
 };
+
 // ============================================================
 // Mutations
 // ============================================================
@@ -324,9 +272,7 @@ const useInvalidateOrderQueries = () => {
 export const useAcceptOrder = () => {
   const invalidate = useInvalidateOrderQueries();
   return useMutation({
-    mutationFn: async (orderId: string) => {
-      await storeApi.acceptOrder(orderId);
-    },
+    mutationFn: async (orderId: string) => storeApi.acceptOrder(orderId),
     onSuccess: (_, orderId) => invalidate(orderId),
   });
 };
@@ -340,9 +286,7 @@ export const useRejectOrder = () => {
     }: {
       orderId: string;
       reason?: string;
-    }) => {
-      await storeApi.rejectOrder(orderId, reason);
-    },
+    }) => storeApi.rejectOrder(orderId, reason),
     onSuccess: (_, variables) => invalidate(variables.orderId),
   });
 };
@@ -356,9 +300,7 @@ export const useCancelOrder = () => {
     }: {
       orderId: string;
       reason: string;
-    }) => {
-      await storeApi.cancelOrder(orderId, reason);
-    },
+    }) => storeApi.cancelOrder(orderId, reason),
     onSuccess: (_, variables) => invalidate(variables.orderId),
   });
 };
@@ -375,13 +317,7 @@ export const useUpdateOrderStatus = () => {
       status: string;
       rejectionReason?: string;
     }) => {
-      // Convert frontend status to API enum value
       const apiStatus = frontendToApiStatus(status);
-      console.log("🔍 Updating order status:", {
-        orderId,
-        frontendStatus: status,
-        apiStatus,
-      });
       await storeApi.updateOrderStatus(orderId, {
         status: apiStatus,
         rejectionReason,
@@ -395,6 +331,7 @@ export const useReadyForDriver = () => {
   const invalidate = useInvalidateOrderQueries();
   return useMutation({
     mutationFn: async (orderId: string) => {
+      // Tamam driver: use ready-for-driver endpoint
       await storeApi.readyForDriver(orderId);
     },
     onSuccess: (_, orderId) => invalidate(orderId),
@@ -404,8 +341,21 @@ export const useReadyForDriver = () => {
 export const usePickedUpOrder = () => {
   const invalidate = useInvalidateOrderQueries();
   return useMutation({
+    mutationFn: async (orderId: string) => storeApi.orderPickedUp(orderId),
+    onSuccess: (_, orderId) => invalidate(orderId),
+  });
+};
+
+export const useCompleteStoreDelivery = () => {
+  const invalidate = useInvalidateOrderQueries();
+  return useMutation({
     mutationFn: async (orderId: string) => {
-      await storeApi.orderPickedUp(orderId);
+      // Mark as ReadyForDriver (required before OutForDelivery)
+      await storeApi.readyForDriver(orderId);
+      // Mark as OutForDelivery
+      await storeApi.outForDelivery(orderId);
+      // Mark as Delivered
+      await storeApi.updateOrderStatus(orderId, { status: "Delivered" });
     },
     onSuccess: (_, orderId) => invalidate(orderId),
   });

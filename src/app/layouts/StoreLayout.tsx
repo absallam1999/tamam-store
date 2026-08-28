@@ -711,10 +711,10 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
   const userMenuRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
 
-  const { data: notificationsData } = useNotifications(1, 5);
+  const { data: notificationsResponse } = useNotifications(1, 5);
   const { data: unreadData } = useUnreadCount();
   const markAsRead = useMarkAsRead();
-  const notifications = notificationsData ?? [];
+  const notifications = notificationsResponse?.notifications ?? [];
   const unreadCount = unreadData ?? 0;
 
   const searchableRoutes = [

@@ -9,6 +9,7 @@ import {
   useStoreOrders,
   useStoreOrderStats,
   useUpdateOrderStatus,
+  useCompleteStoreDelivery,
   useAcceptOrder,
   useReadyForDriver,
   usePickedUpOrder,
@@ -33,8 +34,7 @@ export type OrderStatus =
 
 const STATUS_FLOW: Record<string, string | null> = {
   pending: "accepted",
-  accepted: "preparing",
-  preparing: "ready",
+  accepted: "ready",
   ready: "picked_up",
   picked_up: null,
   delivered: null,
@@ -43,7 +43,6 @@ const STATUS_FLOW: Record<string, string | null> = {
 
 const STATUS_ACTION_LABEL: Record<string, { ar: string; en: string }> = {
   accepted: { ar: "قبول", en: "Accept" },
-  preparing: { ar: "بدء التحضير", en: "Start Preparing" },
   ready: { ar: "جاهز للتوصيل", en: "Ready for Pickup" },
   picked_up: { ar: "تأكيد الاستلام", en: "Confirm Pickup" },
 };
@@ -91,6 +90,12 @@ const t = {
   revenue: { ar: "إيرادات اليوم", en: "Today's Revenue" },
   clearFilter: { ar: "مسح", en: "Clear" },
   x: { ar: "x", en: "x" },
+  selectDeliveryMethod: {
+    ar: "اختر طريقة التوصيل",
+    en: "Select Delivery Method",
+  },
+  tamamDelivery: { ar: "توصيل تمام", en: "Tamam Delivery" },
+  storeOwnDelivery: { ar: "توصيل المتجر", en: "Store Own Delivery" },
 };
 
 // ============================================================
@@ -103,42 +108,147 @@ const getStatusConfig = (isAr: boolean) => ({
     className:
       "bg-warning-50 text-warning-700 border-warning-200 dark:bg-warning-500/10 dark:text-warning-400 dark:border-warning-500/20",
     dot: "bg-warning-500",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+        />
+      </svg>
+    ),
   },
   accepted: {
     label: isAr ? t.accepted.ar : t.accepted.en,
     className:
       "bg-info-50 text-info-700 border-info-200 dark:bg-info-500/10 dark:text-info-400 dark:border-info-500/20",
     dot: "bg-info-500",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="m4.5 12.75 6 6 9-13.5"
+        />
+      </svg>
+    ),
   },
   preparing: {
     label: isAr ? t.preparing.ar : t.preparing.en,
     className:
       "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-500/10 dark:text-purple-400 dark:border-purple-500/20",
     dot: "bg-purple-500",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42"
+        />
+      </svg>
+    ),
   },
   ready: {
     label: isAr ? t.ready.ar : t.ready.en,
     className:
       "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20",
     dot: "bg-emerald-500",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="m4.5 12.75 6 6 9-13.5"
+        />
+      </svg>
+    ),
   },
   picked_up: {
     label: isAr ? t.picked_up.ar : t.picked_up.en,
     className:
       "bg-primary-50 text-primary-700 border-primary-200 dark:bg-primary-500/10 dark:text-primary-400 dark:border-primary-500/20",
     dot: "bg-primary-500",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 0 0-3.213-9.193 2.056 2.056 0 0 0-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 0 0-10.026 0 1.106 1.106 0 0 0-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"
+        />
+      </svg>
+    ),
   },
   delivered: {
     label: isAr ? t.delivered.ar : t.delivered.en,
     className:
       "bg-success-50 text-success-700 border-success-200 dark:bg-success-500/10 dark:text-success-400 dark:border-success-500/20",
     dot: "bg-success-500",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="m4.5 12.75 6 6 9-13.5"
+        />
+      </svg>
+    ),
   },
   cancelled: {
     label: isAr ? t.cancelled.ar : t.cancelled.en,
     className:
       "bg-error-50 text-error-700 border-error-200 dark:bg-error-500/10 dark:text-error-400 dark:border-error-500/20",
     dot: "bg-error-500",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M6 18 18 6M6 6l12 12"
+        />
+      </svg>
+    ),
   },
 });
 
@@ -151,10 +261,7 @@ const OrderItemsExpanded: React.FC<{
   items: any[];
   isAr: boolean;
 }> = ({ orderId, items, isAr }) => {
-  // Fetch full order details (includes options)
   const { data: fullOrder } = useStoreOrder(orderId);
-
-  // Use full order items if available, otherwise fallback to list items
   const displayItems = fullOrder?.items || items;
 
   return (
@@ -164,7 +271,6 @@ const OrderItemsExpanded: React.FC<{
           ? item.productNameAr || item.productNameEn || ""
           : item.productNameEn || item.productNameAr || "";
 
-        // Parse options
         let parsedOptions: any[] = [];
         try {
           if (typeof item.options === "string" && item.options.trim()) {
@@ -179,7 +285,6 @@ const OrderItemsExpanded: React.FC<{
           parsedOptions = [];
         }
 
-        // Format options for display
         const formatOptionDisplay = (opt: any): string => {
           if (typeof opt === "string") return opt;
           if (!opt || typeof opt !== "object") return "";
@@ -199,7 +304,6 @@ const OrderItemsExpanded: React.FC<{
               "";
 
           let values: string[] = [];
-
           if (Array.isArray(opt.values)) {
             values = opt.values
               .map((v: any) => {
@@ -216,15 +320,13 @@ const OrderItemsExpanded: React.FC<{
           } else if (opt.valueName) {
             values = [opt.valueName];
           } else if (opt.value) {
-            if (typeof opt.value === "string") {
-              values = [opt.value];
-            } else {
+            if (typeof opt.value === "string") values = [opt.value];
+            else
               values = [
                 isAr
                   ? opt.value.nameAr || opt.value.name || ""
                   : opt.value.nameEn || opt.value.name || "",
               ];
-            }
           } else if (opt.selectedValueName) {
             values = [opt.selectedValueName];
           } else if (opt.selectedValues && Array.isArray(opt.selectedValues)) {
@@ -242,9 +344,8 @@ const OrderItemsExpanded: React.FC<{
               .filter(Boolean);
           }
 
-          if (optionName && values.length > 0) {
+          if (optionName && values.length > 0)
             return `${optionName}: ${values.join(", ")}`;
-          }
           if (values.length > 0) return values.join(", ");
           return optionName;
         };
@@ -269,8 +370,6 @@ const OrderItemsExpanded: React.FC<{
                 {formatCurrency(item.quantity * item.unitPrice)}
               </span>
             </div>
-
-            {/* Options Display */}
             {optionsDisplay && (
               <div
                 className={cn(
@@ -317,11 +416,14 @@ export const OrdersPage: React.FC = () => {
   const [searchInput, setSearchInput] = useState(urlSearchQuery);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [expandedOrders, setExpandedOrders] = useState<Set<string>>(new Set());
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [deliveryOrderId, setDeliveryOrderId] = useState<string | null>(null);
 
   const { data: orders = [], isLoading } = useStoreOrders();
   const { data: statsData } = useStoreOrderStats();
   const acceptOrder = useAcceptOrder();
   const readyForDriver = useReadyForDriver();
+  const completeStoreDelivery = useCompleteStoreDelivery();
   const pickedUpOrder = usePickedUpOrder();
   const updateStatus = useUpdateOrderStatus();
 
@@ -336,7 +438,6 @@ export const OrdersPage: React.FC = () => {
     });
   }, []);
 
-  // Client-side filtering
   const statusFiltered = useMemo(() => {
     if (activeFilter === "all") return orders;
     return orders.filter(
@@ -402,11 +503,44 @@ export const OrdersPage: React.FC = () => {
   const executeStatusAction = async (orderId: string, next: string) => {
     setProcessingId(orderId);
     try {
-      if (next === "accepted") await acceptOrder.mutateAsync(orderId);
-      else if (next === "ready") await readyForDriver.mutateAsync(orderId);
-      else if (next === "picked_up") await pickedUpOrder.mutateAsync(orderId);
-      else await updateStatus.mutateAsync({ orderId, status: next });
-      toast.success(lang(t.statusUpdated));
+      if (next === "accepted") {
+        await acceptOrder.mutateAsync(orderId);
+        toast.success(lang(t.statusUpdated));
+      } else if (next === "ready") {
+        // Show delivery method modal
+        setDeliveryOrderId(orderId);
+        setShowDeliveryModal(true);
+        setProcessingId(null);
+        return;
+      } else if (next === "picked_up") {
+        await pickedUpOrder.mutateAsync(orderId);
+        toast.success(lang(t.statusUpdated));
+      } else {
+        await updateStatus.mutateAsync({ orderId, status: next });
+        toast.success(lang(t.statusUpdated));
+      }
+    } catch (err: any) {
+      toast.error(err?.message || lang(t.statusUpdateFailed));
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleDeliveryChoice = async (method: "tamam" | "store") => {
+    if (!deliveryOrderId) return;
+    setProcessingId(deliveryOrderId);
+    try {
+      if (method === "store") {
+        // Store own driver: complete full flow (ready → out → delivered)
+        await completeStoreDelivery.mutateAsync(deliveryOrderId);
+        toast.success(lang(t.delivered));
+      } else {
+        // Tamam driver: just ready for driver
+        await readyForDriver.mutateAsync(deliveryOrderId);
+        toast.success(lang(t.ready));
+      }
+      setShowDeliveryModal(false);
+      setDeliveryOrderId(null);
     } catch (err: any) {
       toast.error(err?.message || lang(t.statusUpdateFailed));
     } finally {
@@ -663,164 +797,80 @@ export const OrdersPage: React.FC = () => {
                 key={order.id}
                 className="bg-white dark:bg-surface-900 rounded-2xl border border-surface-200 dark:border-surface-800 transition-all duration-200 hover:border-surface-300 dark:hover:border-surface-700 hover:shadow-md group overflow-hidden"
               >
-                {/* Main Row - clickable to expand */}
                 <button
                   onClick={() => itemCount > 0 && toggleExpanded(order.id)}
                   className="w-full p-4 sm:p-5 text-left cursor-pointer"
                 >
                   <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                     <div className="flex items-center gap-4 flex-1 min-w-0">
-                      <div
+                      <Link
+                        to={`/dashboard/orders/${order.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-3 min-w-0 group/link"
+                      >
+                        <div
+                          className={cn(
+                            "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform group-hover/link:scale-105",
+                            sc.className.split(" ")[0],
+                            sc.className.split(" ")[1],
+                          )}
+                        >
+                          {sc.icon}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-mono text-sm font-bold text-surface-900 dark:text-white group-hover/link:text-primary-600 dark:group-hover/link:text-primary-400 transition-colors">
+                              #{order.orderNumber}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-surface-500 dark:text-surface-400">
+                            <span className="font-medium text-surface-700 dark:text-surface-300">
+                              {order.customerName || "—"}
+                            </span>
+                            {order.customerPhone && (
+                              <>
+                                <span className="text-surface-300">•</span>
+                                <span dir="ltr">{order.customerPhone}</span>
+                              </>
+                            )}
+                            <span className="text-surface-300">•</span>
+                            <span>
+                              {itemCount}{" "}
+                              {itemCount === 1 ? lang(t.item) : lang(t.items)}
+                            </span>
+                            {itemCount > 0 && (
+                              <svg
+                                className={cn(
+                                  "w-3.5 h-3.5 transition-transform",
+                                  isExpanded && "rotate-180",
+                                )}
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth={2}
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="m19.5 8.25-7.5 7.5-7.5-7.5"
+                                />
+                              </svg>
+                            )}
+                          </div>
+                        </div>
+                      </Link>
+                      {/* Status badge */}
+                      <span
                         className={cn(
-                          "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0",
-                          sc.className.split(" ")[0],
-                          sc.className.split(" ")[1],
+                          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0",
+                          sc.className,
                         )}
                       >
-                        {status === "pending" && (
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth={1.5}
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-                            />
-                          </svg>
-                        )}
-                        {status === "accepted" && (
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth={1.5}
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="m4.5 12.75 6 6 9-13.5"
-                            />
-                          </svg>
-                        )}
-                        {status === "preparing" && (
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth={1.5}
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42"
-                            />
-                          </svg>
-                        )}
-                        {(status === "ready" || status === "delivered") && (
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth={1.5}
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="m4.5 12.75 6 6 9-13.5"
-                            />
-                          </svg>
-                        )}
-                        {status === "picked_up" && (
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth={1.5}
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 0 0-3.213-9.193 2.056 2.056 0 0 0-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 0 0-10.026 0 1.106 1.106 0 0 0-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"
-                            />
-                          </svg>
-                        )}
-                        {status === "cancelled" && (
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            strokeWidth={1.5}
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M6 18 18 6M6 6l12 12"
-                            />
-                          </svg>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-sm font-bold text-surface-900 dark:text-white">
-                            #{order.orderNumber}
-                          </span>
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border",
-                              sc.className,
-                            )}
-                          >
-                            <span
-                              className={cn("w-1 h-1 rounded-full", sc.dot)}
-                            />
-                            {sc.label}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-surface-500 dark:text-surface-400">
-                          <span className="font-medium text-surface-700 dark:text-surface-300">
-                            {order.customerName || "—"}
-                          </span>
-                          {order.customerPhone && (
-                            <>
-                              <span className="text-surface-300">•</span>
-                              <span dir="ltr">{order.customerPhone}</span>
-                            </>
-                          )}
-                          <span className="text-surface-300">•</span>
-                          <span>
-                            {itemCount}{" "}
-                            {itemCount === 1 ? lang(t.item) : lang(t.items)}
-                          </span>
-                          {itemCount > 0 && (
-                            <svg
-                              className={cn(
-                                "w-3.5 h-3.5 transition-transform",
-                                isExpanded && "rotate-180",
-                              )}
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              strokeWidth={2}
-                              stroke="currentColor"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="m19.5 8.25-7.5 7.5-7.5-7.5"
-                              />
-                            </svg>
-                          )}
-                        </div>
-                      </div>
+                        <span className={cn("w-1 h-1 rounded-full", sc.dot)} />
+                        {sc.label}
+                      </span>
                     </div>
+
                     <div
                       className="flex items-center gap-4 lg:gap-6 flex-shrink-0"
                       onClick={(e) => e.stopPropagation()}
@@ -876,10 +926,15 @@ export const OrdersPage: React.FC = () => {
                           {sc.label}
                         </span>
                       )}
+                      {/* Details link */}
                       <Link
                         to={`/dashboard/orders/${order.id}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="p-2 rounded-xl text-surface-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-500/10 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                        className="p-2 rounded-xl text-surface-400 hover:text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-500/10 transition-all flex-shrink-0"
+                        aria-label={lang({
+                          ar: "عرض التفاصيل",
+                          en: "View details",
+                        })}
                       >
                         <svg
                           className={cn("w-4 h-4", isAr && "rotate-180")}
@@ -899,7 +954,6 @@ export const OrdersPage: React.FC = () => {
                   </div>
                 </button>
 
-                {/* Expandable Items List */}
                 {isExpanded && itemCount > 0 && (
                   <div className="border-t border-surface-100 dark:border-surface-800 bg-surface-50/50 dark:bg-surface-800/20 px-5 py-3">
                     <OrderItemsExpanded
@@ -912,6 +966,118 @@ export const OrdersPage: React.FC = () => {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Delivery Method Modal */}
+      {showDeliveryModal && deliveryOrderId && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-surface-900 w-full max-w-md rounded-2xl border border-surface-200 dark:border-surface-800 shadow-2xl">
+            <div className="px-6 py-5 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-surface-900 dark:text-white">
+                {lang(t.selectDeliveryMethod)}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowDeliveryModal(false);
+                  setDeliveryOrderId(null);
+                }}
+                className="p-2 rounded-xl text-surface-400 hover:text-surface-600 hover:bg-surface-100 dark:hover:bg-surface-800"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M6 18 18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-3">
+              <p className="text-sm text-surface-500 dark:text-surface-400">
+                {isAr
+                  ? "يرجى اختيار طريقة توصيل الطلب"
+                  : "Please choose delivery method"}
+              </p>
+              <button
+                onClick={() => handleDeliveryChoice("tamam")}
+                disabled={isLoading}
+                className="w-full p-4 rounded-xl border-2 border-primary-500/20 bg-primary-50 dark:bg-primary-500/10 hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-all text-start"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center">
+                    <svg
+                      className="w-6 h-6 text-primary-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 0 0-3.213-9.193 2.056 2.056 0 0 0-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 0 0-10.026 0 1.106 1.106 0 0 0-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"
+                      />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-surface-900 dark:text-white">
+                      {lang(t.tamamDelivery)}
+                    </p>
+                    <p className="text-xs text-surface-500">
+                      {isAr
+                        ? "سيقوم سائق تمام بتوصيل الطلب"
+                        : "Tamam driver will deliver the order"}
+                    </p>
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => handleDeliveryChoice("store")}
+                disabled={isLoading}
+                className="w-full p-4 rounded-xl border-2 border-surface-200 dark:border-surface-700 hover:border-primary-500/50 hover:bg-surface-50 dark:hover:bg-surface-800 transition-all text-start"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-surface-100 dark:bg-surface-800 flex items-center justify-center">
+                    <svg
+                      className="w-6 h-6 text-surface-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z"
+                      />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-surface-900 dark:text-white">
+                      {lang(t.storeOwnDelivery)}
+                    </p>
+                    <p className="text-xs text-surface-500">
+                      {isAr
+                        ? "سيتولى المتجر توصيل الطلب"
+                        : "Store will handle delivery"}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

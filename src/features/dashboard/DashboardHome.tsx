@@ -25,6 +25,10 @@ const t = {
   storeOwner: { ar: "صاحب المتجر", en: "Store Owner" },
   open: { ar: "مفتوح", en: "Open" },
   closed: { ar: "مغلق", en: "Closed" },
+  busy: { ar: "مشغول", en: "Busy" },
+  free: { ar: "متاح", en: "Free" },
+  toggleStoreStatus: { ar: "تبديل حالة المتجر", en: "Toggle store status" },
+  toggleBusyStatus: { ar: "تبديل حالة الانشغال", en: "Toggle busy status" },
   todayRevenue: { ar: "إيرادات اليوم", en: "Today's Revenue" },
   todayOrders: { ar: "طلبات اليوم", en: "Today's Orders" },
   pendingOrders: { ar: "طلبات معلقة", en: "Pending Orders" },
@@ -112,10 +116,13 @@ const getStatusConfig = (isAr: boolean) => ({
 export const DashboardHome: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { store, isOpen, toggleStoreStatus, refreshStore } = useStore();
+  const { store, isOpen, isBusy, toggleStoreStatus, toggleBusy, refreshStore } =
+    useStore();
   const { currentLanguage } = useLanguage();
   const toast = useToast();
   const [isToggling, setIsToggling] = useState(false);
+  const [isBusyToggling, setIsBusyToggling] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const isAr = currentLanguage === "ar";
   const lang = (obj: { ar: string; en: string }) => (isAr ? obj.ar : obj.en);
@@ -197,6 +204,18 @@ export const DashboardHome: React.FC = () => {
     }
   };
 
+  const handleBusyToggle = async () => {
+    setIsBusyToggling(true);
+    try {
+      await toggleBusy();
+      toast.success(isAr ? "تم تحديث حالة الانشغال" : "Busy status updated");
+    } catch {
+      toast.error(isAr ? "فشل تحديث الحالة" : "Failed to update busy status");
+    } finally {
+      setIsBusyToggling(false);
+    }
+  };
+
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return lang(t.morning);
@@ -210,10 +229,13 @@ export const DashboardHome: React.FC = () => {
     : store?.nameEn || store?.nameAr || lang(t.myStore);
   const statusConfig = getStatusConfig(isAr);
 
-  const handleRefresh = () => {
-    refetchStats();
-    refetchOrders();
-    refreshStore(); // refresh store data as well
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([refetchStats(), refetchOrders(), refreshStore()]);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   return (
@@ -225,109 +247,143 @@ export const DashboardHome: React.FC = () => {
       dir={isAr ? "rtl" : "ltr"}
     >
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-surface-900 dark:text-white">
             {getGreeting()}, {getUserName()}
           </h1>
-          <div className="flex items-center gap-3 mt-1 flex-wrap">
-            <p className="text-sm text-surface-500 dark:text-surface-400">
+          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+            <p className="text-sm text-surface-500 dark:text-surface-400 font-medium">
               {storeName}
             </p>
+            {/* Status Badge */}
             <span
               className={cn(
-                "inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-0.5 rounded-full border",
+                "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border",
                 isOpen
                   ? "bg-success-50 text-success-700 border-success-200 dark:bg-success-500/10 dark:text-success-400 dark:border-success-500/20"
-                  : "bg-surface-100 text-surface-500 border-surface-200 dark:bg-surface-800 dark:text-surface-400 dark:border-surface-700",
+                  : "bg-surface-100 text-surface-600 border-surface-200 dark:bg-surface-800 dark:text-surface-300 dark:border-surface-700",
               )}
             >
               <span
                 className={cn(
                   "w-1.5 h-1.5 rounded-full",
-                  isOpen ? "bg-success-500 animate-pulse" : "bg-surface-400",
+                  isOpen
+                    ? "bg-success-500"
+                    : "bg-surface-400 dark:bg-surface-500",
                 )}
               />
+              {isOpen ? lang(t.open) : lang(t.closed)}
+            </span>
+          </div>
+        </div>
+
+        {/* Toggle Switches Card */}
+        <div className="flex items-center gap-3 sm:gap-4 p-3 sm:p-3.5 bg-white dark:bg-surface-900/50 rounded-2xl border border-surface-200 dark:border-surface-800 shadow-sm">
+          {/* Open/Closed Toggle */}
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "text-xs font-medium",
+                isOpen
+                  ? "text-success-600 dark:text-success-400"
+                  : "text-surface-500 dark:text-surface-400",
+              )}
+            >
               {isOpen ? lang(t.open) : lang(t.closed)}
             </span>
             <button
               onClick={handleToggle}
               disabled={isToggling}
               className={cn(
-                "p-1.5 rounded-lg transition-all duration-200",
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-success-500 dark:focus:ring-offset-surface-900",
                 isOpen
-                  ? "text-success-600 hover:bg-success-100 dark:text-success-400 dark:hover:bg-success-500/20"
-                  : "text-surface-500 hover:bg-surface-200 dark:text-surface-400 dark:hover:bg-surface-700",
+                  ? "bg-success-500"
+                  : "bg-surface-300 dark:bg-surface-600",
                 isToggling && "opacity-50 cursor-wait",
               )}
-              title={
-                isAr
-                  ? isOpen
-                    ? "إغلاق المتجر"
-                    : "فتح المتجر"
-                  : isOpen
-                    ? "Close Store"
-                    : "Open Store"
-              }
+              aria-label={lang(t.toggleStoreStatus)}
             >
-              {isToggling ? (
-                <svg
-                  className="w-4 h-4 animate-spin"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                  />
-                </svg>
-              ) : (
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5.636 5.636a9 9 0 1 0 12.728 0M12 3v9"
-                  />
-                </svg>
-              )}
+              <span
+                className={cn(
+                  "inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200",
+                  isOpen
+                    ? isAr
+                      ? "-translate-x-6"
+                      : "translate-x-6"
+                    : "translate-x-1",
+                )}
+              />
             </button>
           </div>
-        </div>
-        <button
-          onClick={handleRefresh}
-          disabled={isLoading}
-          className="btn btn-ghost btn-sm"
-        >
-          <svg
-            className={cn("w-4 h-4", isLoading && "animate-spin")}
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={2}
-            stroke="currentColor"
+
+          {/* Divider */}
+          <div className="hidden sm:block w-px h-6 bg-surface-200 dark:bg-surface-700" />
+
+          {/* Busy/Free Toggle */}
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "text-xs font-medium",
+                isBusy
+                  ? "text-warning-600 dark:text-warning-400"
+                  : "text-success-600 dark:text-success-400",
+              )}
+            >
+              {isBusy ? lang(t.busy) : lang(t.free)}
+            </span>
+            <button
+              onClick={handleBusyToggle}
+              disabled={isBusyToggling}
+              className={cn(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-warning-500 dark:focus:ring-offset-surface-900",
+                isBusy ? "bg-warning-500" : "bg-success-500",
+                isBusyToggling && "opacity-50 cursor-wait",
+              )}
+              aria-label={lang(t.toggleBusyStatus)}
+            >
+              <span
+                className={cn(
+                  "inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200",
+                  isBusy
+                    ? isAr
+                      ? "-translate-x-6"
+                      : "translate-x-6"
+                    : "translate-x-1",
+                )}
+              />
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div className="hidden sm:block w-px h-6 bg-surface-200 dark:bg-surface-700" />
+
+          {/* Refresh Button */}
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className={cn(
+              "p-2 rounded-lg text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:focus:ring-offset-surface-900",
+              isRefreshing && "opacity-50 cursor-wait",
+            )}
+            aria-label={lang(t.refresh)}
+            title={lang(t.refresh)}
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182"
-            />
-          </svg>
-          <span className="hidden sm:inline">{lang(t.refresh)}</span>
-        </button>
+            <svg
+              className={cn("w-4 h-4", isRefreshing && "animate-spin")}
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}

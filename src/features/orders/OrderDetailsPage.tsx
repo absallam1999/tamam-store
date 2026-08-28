@@ -11,6 +11,7 @@ import {
   useReadyForDriver,
   usePickedUpOrder,
   useCancelOrder,
+  useCompleteStoreDelivery,
 } from "@/shared/hooks/useStoreOrders";
 import { useState } from "react";
 
@@ -142,6 +143,12 @@ const t = {
   },
   normal: { ar: "عادي", en: "Normal" },
   scheduled: { ar: "مجدول", en: "Scheduled" },
+  selectDeliveryMethod: {
+    ar: "اختر طريقة التوصيل",
+    en: "Select Delivery Method",
+  },
+  tamamDelivery: { ar: "توصيل تمام", en: "Tamam Delivery" },
+  storeOwnDelivery: { ar: "توصيل المتجر", en: "Store Own Delivery" },
 };
 
 // ============================================
@@ -301,8 +308,7 @@ const getStatusConfig = (isAr: boolean) => ({
 // Status flow
 const STATUS_FLOW: Record<string, string | null> = {
   pending: "accepted",
-  accepted: "preparing",
-  preparing: "ready",
+  accepted: "ready",
   ready: "picked_up",
   picked_up: null,
   delivered: null,
@@ -311,7 +317,6 @@ const STATUS_FLOW: Record<string, string | null> = {
 
 const STATUS_ACTION_LABEL: Record<string, { ar: string; en: string }> = {
   accepted: { ar: "قبول الطلب", en: "Accept Order" },
-  preparing: { ar: "بدء التحضير", en: "Start Preparing" },
   ready: { ar: "جاهز للتوصيل", en: "Ready for Pickup" },
   picked_up: { ar: "تأكيد الاستلام", en: "Confirm Pickup" },
 };
@@ -333,6 +338,7 @@ export const OrderDetailsPage: React.FC = () => {
   const [rejectReason, setRejectReason] = useState("");
   const [cancelReason, setCancelReason] = useState("");
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showDeliveryMethodModal, setShowDeliveryMethodModal] = useState(false);
 
   const {
     data: order,
@@ -343,6 +349,7 @@ export const OrderDetailsPage: React.FC = () => {
   const acceptOrder = useAcceptOrder();
   const rejectOrder = useRejectOrder();
   const updateStatus = useUpdateOrderStatus();
+  const completeStoreDelivery = useCompleteStoreDelivery();
   const readyForDriver = useReadyForDriver();
   const pickedUpOrder = usePickedUpOrder();
   const cancelOrder = useCancelOrder();
@@ -358,18 +365,47 @@ export const OrderDetailsPage: React.FC = () => {
   const handleStatusUpdate = async (newStatus: string) => {
     if (!order) return;
     try {
-      if (newStatus === "accepted") await acceptOrder.mutateAsync(order.id);
-      else if (newStatus === "ready")
-        await readyForDriver.mutateAsync(order.id);
-      else if (newStatus === "picked_up")
+      if (newStatus === "accepted") {
+        await acceptOrder.mutateAsync(order.id);
+        toast.success(lang(t.statusUpdated));
+      } else if (newStatus === "ready") {
+        setShowDeliveryMethodModal(true);
+        return;
+      } else if (newStatus === "picked_up") {
         await pickedUpOrder.mutateAsync(order.id);
-      else
+        toast.success(lang(t.statusUpdated));
+      } else if (newStatus === "delivered") {
+        await updateStatus.mutateAsync({
+          orderId: order.id,
+          status: "delivered",
+        });
+        toast.success(lang(t.statusUpdated));
+      } else {
         await updateStatus.mutateAsync({
           orderId: order.id,
           status: newStatus,
         });
+        toast.success(lang(t.statusUpdated));
+      }
+      refetch();
+    } catch (err: any) {
+      toast.error(err?.message || lang(t.statusUpdateError));
+    }
+  };
 
-      toast.success(lang(t.statusUpdated));
+  const handleDeliveryChoice = async (method: "tamam" | "store") => {
+    if (!order) return;
+    setShowDeliveryMethodModal(false);
+    try {
+      if (method === "store") {
+        // Store own driver: use out-for-delivery endpoint, then delivered
+        await completeStoreDelivery.mutateAsync(order.id);
+        toast.success(lang(t.statusDelivered));
+      } else {
+        // Tamam driver: just ready for driver
+        await readyForDriver.mutateAsync(order.id);
+        toast.success(lang(t.statusReady));
+      }
       refetch();
     } catch (err: any) {
       toast.error(err?.message || lang(t.statusUpdateError));
@@ -475,13 +511,12 @@ export const OrderDetailsPage: React.FC = () => {
     );
   }
 
-  // Status is already normalized by the hook
   const status = (order.status || "pending") as OrderStatus;
   const sc = getStatusConfig(isAr)[status] || getStatusConfig(isAr).pending;
   const nextStatus = STATUS_FLOW[status];
   const nextLabel = nextStatus ? lang(STATUS_ACTION_LABEL[nextStatus]) : null;
   const canReject = status === "pending";
-  const canCancel = ["pending", "accepted", "preparing"].includes(status);
+  const canCancel = ["pending", "accepted"].includes(status);
 
   return (
     <div
@@ -597,13 +632,7 @@ export const OrderDetailsPage: React.FC = () => {
               <button
                 onClick={() => handleStatusUpdate(nextStatus)}
                 disabled={isUpdating}
-                className={cn(
-                  "px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200",
-                  "bg-primary-600 text-white hover:bg-primary-700 active:scale-[0.98]",
-                  "shadow-sm hover:shadow-md",
-                  "disabled:opacity-50 disabled:cursor-not-allowed",
-                  "flex items-center gap-2",
-                )}
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold bg-primary-600 text-white hover:bg-primary-700 active:scale-[0.98] shadow-sm hover:shadow-md disabled:opacity-50 flex items-center gap-2"
               >
                 {isUpdating ? (
                   <svg
@@ -657,7 +686,6 @@ export const OrderDetailsPage: React.FC = () => {
                     ? item.productNameAr || item.productNameEn || ""
                     : item.productNameEn || item.productNameAr || "";
 
-                  // Parse options from string if needed
                   let parsedOptions: any[] = [];
                   try {
                     if (
@@ -693,7 +721,6 @@ export const OrderDetailsPage: React.FC = () => {
                         </p>
                       </div>
 
-                      {/* Product Options Display */}
                       {parsedOptions.length > 0 && (
                         <div
                           className={cn(
@@ -702,7 +729,6 @@ export const OrderDetailsPage: React.FC = () => {
                           )}
                         >
                           {parsedOptions.map((opt, optIdx) => {
-                            // Handle different option structures
                             let optionName = "";
                             let optionValues: string[] = [];
 
@@ -723,7 +749,6 @@ export const OrderDetailsPage: React.FC = () => {
                                   opt.groupName ||
                                   "";
 
-                              // Handle values in different formats
                               if (Array.isArray(opt.values)) {
                                 optionValues = opt.values
                                   .map((v: any) =>
@@ -964,29 +989,7 @@ export const OrderDetailsPage: React.FC = () => {
                   disabled={isUpdating}
                   className="w-full px-4 py-3 rounded-xl text-sm font-semibold bg-primary-600 text-white hover:bg-primary-700 active:scale-[0.98] shadow-sm disabled:opacity-50 transition-all flex items-center justify-center gap-2"
                 >
-                  {isUpdating ? (
-                    <svg
-                      className="w-4 h-4 animate-spin"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                      />
-                    </svg>
-                  ) : (
-                    nextLabel
-                  )}
+                  {nextLabel}
                 </button>
               )}
               <button
@@ -1012,7 +1015,6 @@ export const OrderDetailsPage: React.FC = () => {
             )}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="px-6 py-5 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between sticky top-0 bg-white dark:bg-surface-900 z-10">
               <div>
                 <h3 className="text-lg font-bold text-surface-900 dark:text-white">
@@ -1044,9 +1046,7 @@ export const OrderDetailsPage: React.FC = () => {
               </button>
             </div>
 
-            {/* Body */}
             <div className="p-6 space-y-4">
-              {/* Warning Box */}
               <div className="flex items-start gap-3 p-4 rounded-xl bg-warning-50 dark:bg-warning-500/10 border border-warning-200 dark:border-warning-500/20">
                 <div className="w-10 h-10 rounded-xl bg-warning-100 dark:bg-warning-500/20 flex items-center justify-center flex-shrink-0">
                   <svg
@@ -1073,7 +1073,6 @@ export const OrderDetailsPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Cancel Reason Input */}
               <div>
                 <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
                   {lang(t.cancelReasonLabel)}{" "}
@@ -1098,7 +1097,6 @@ export const OrderDetailsPage: React.FC = () => {
                 />
               </div>
 
-              {/* Wallet Charge Info */}
               <div className="flex items-center justify-between p-4 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-200 dark:border-surface-700">
                 <span className="text-sm text-surface-600 dark:text-surface-400">
                   {isAr ? "مبلغ الخصم" : "Deduction Amount"}
@@ -1108,7 +1106,6 @@ export const OrderDetailsPage: React.FC = () => {
                 </span>
               </div>
 
-              {/* Action Buttons */}
               <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => {
@@ -1254,6 +1251,115 @@ export const OrderDetailsPage: React.FC = () => {
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delivery Method Modal */}
+      {showDeliveryMethodModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-surface-900 w-full max-w-md rounded-2xl border border-surface-200 dark:border-surface-800 shadow-2xl">
+            <div className="px-6 py-5 border-b border-surface-200 dark:border-surface-800 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-surface-900 dark:text-white">
+                {lang(t.selectDeliveryMethod)}
+              </h3>
+              <button
+                onClick={() => setShowDeliveryMethodModal(false)}
+                className="p-2 rounded-xl text-surface-400 hover:text-surface-600 hover:bg-surface-100 dark:hover:bg-surface-800"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M6 18 18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-3">
+              <p className="text-sm text-surface-500 dark:text-surface-400">
+                {isAr
+                  ? "يرجى اختيار طريقة توصيل الطلب"
+                  : "Please choose delivery method"}
+              </p>
+              <button
+                onClick={() => handleDeliveryChoice("tamam")}
+                disabled={isUpdating}
+                className="w-full p-4 rounded-xl border-2 border-primary-500/20 bg-primary-50 dark:bg-primary-500/10 hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-all text-start"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-primary-100 dark:bg-primary-500/20 flex items-center justify-center">
+                    <svg
+                      className="w-6 h-6 text-primary-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 0 0-3.213-9.193 2.056 2.056 0 0 0-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 0 0-10.026 0 1.106 1.106 0 0 0-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12"
+                      />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-surface-900 dark:text-white">
+                      {lang(t.tamamDelivery)}
+                    </p>
+                    <p className="text-xs text-surface-500">
+                      {isAr
+                        ? "سيقوم سائق تمام بتوصيل الطلب"
+                        : "Tamam driver will deliver the order"}
+                    </p>
+                  </div>
+                </div>
+              </button>
+              <button
+                onClick={() => handleDeliveryChoice("store")}
+                disabled={isUpdating}
+                className="w-full p-4 rounded-xl border-2 border-surface-200 dark:border-surface-700 hover:border-primary-500/50 hover:bg-surface-50 dark:hover:bg-surface-800 transition-all text-start"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-surface-100 dark:bg-surface-800 flex items-center justify-center">
+                    <svg
+                      className="w-6 h-6 text-surface-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z"
+                      />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-surface-900 dark:text-white">
+                      {lang(t.storeOwnDelivery)}
+                    </p>
+                    <p className="text-xs text-surface-500">
+                      {isAr
+                        ? "سيتولى المتجر توصيل الطلب"
+                        : "Store will handle delivery"}
+                    </p>
+                  </div>
+                </div>
+              </button>
             </div>
           </div>
         </div>

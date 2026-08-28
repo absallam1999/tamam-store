@@ -174,7 +174,9 @@ export const NotificationsPage: React.FC = () => {
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const { data: notifications = [], isLoading } = useNotifications(page, 20);
+  const { data, isLoading } = useNotifications(page, 20);
+  const notifications = data?.notifications ?? [];
+  const totalCount = data?.totalCount ?? 0;
   const { data: unreadData } = useUnreadCount();
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
@@ -182,7 +184,6 @@ export const NotificationsPage: React.FC = () => {
   const deleteAllNotifications = useDeleteAllNotifications();
 
   const unreadCount = unreadData ?? 0;
-  const totalCount = notifications.length;
 
   const filteredNotifications =
     filter === "unread"
@@ -336,7 +337,7 @@ export const NotificationsPage: React.FC = () => {
               "bg-warning-100 dark:bg-warning-500/10 text-warning-600 dark:text-warning-400",
           },
           {
-            value: notifications.filter((n) => n.isRead).length,
+            value: Math.max(totalCount - unreadCount, 0),
             label: lang(t.read),
             color:
               "bg-success-100 dark:bg-success-500/10 text-success-600 dark:text-success-400",
