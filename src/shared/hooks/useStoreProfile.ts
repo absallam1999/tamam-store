@@ -40,6 +40,7 @@ const EMPTY_PROFILE: StoreProfileDto = {
   streetEn: "",
   city: "",
   isOpen: false,
+  isBusy: false,
   openingTime: "00:00:00",
   closingTime: "23:59:59",
   minimumOrderAmount: 0,

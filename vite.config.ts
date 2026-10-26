@@ -23,7 +23,13 @@ export default defineConfig({
     open: true,
     proxy: {
       "/api": {
-        target: "https://dist.tamamapp.net",
+        // DEV
+        // target: "http://tamamapp.runasp.net",
+        target: "https://localhost:7241",
+
+        // PRO
+        // target: "https://dist.tamamapp.net",
+
         changeOrigin: true,
         secure: false,
         configure: (proxy) => {
