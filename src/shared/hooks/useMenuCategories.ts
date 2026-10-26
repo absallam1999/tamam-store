@@ -1,85 +1,116 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { storeApi } from "@/config/store.api";
 import type {
   MenuCategoryDto,
   CreateMenuCategoryDto,
   UpdateMenuCategoryDto,
-} from "../types";
-import { storeApi } from "../../config/storeApi";
+} from "@shared/types";
 
+// ═════════════════════════════════════════════════════════════════════
+// Query keys
+// ═════════════════════════════════════════════════════════════════════
 export const MENU_CATEGORIES_KEY = "menuCategories";
 
-function unwrap<T>(response: unknown): T {
-  if (response && typeof response === "object" && "data" in response) {
-    return (response as Record<string, unknown>).data as T;
-  }
-  return response as T;
-}
+export const menuCategoryKeys = {
+  all: [MENU_CATEGORIES_KEY] as const,
+  list: () => [MENU_CATEGORIES_KEY, "list"] as const,
+  detail: (id: string) => [MENU_CATEGORIES_KEY, "detail", id] as const,
+};
 
-export const useMenuCategories = () => {
+// ═════════════════════════════════════════════════════════════════════
+// Queries
+// ═════════════════════════════════════════════════════════════════════
+
+export function useMenuCategories() {
   return useQuery<MenuCategoryDto[]>({
-    queryKey: [MENU_CATEGORIES_KEY],
-    queryFn: async () => {
-      const response = await storeApi.getMenuCategories();
-      return unwrap<MenuCategoryDto[]>(response);
-    },
+    queryKey: menuCategoryKeys.list(),
+    queryFn: () => storeApi.menuCategories.list(),
     staleTime: 2 * 60 * 1000,
   });
-};
+}
 
-export const useMenuCategory = (categoryId: string) => {
+export function useMenuCategory(categoryId: string | undefined) {
   return useQuery<MenuCategoryDto>({
-    queryKey: [MENU_CATEGORIES_KEY, categoryId],
-    queryFn: async () => {
-      const response = await storeApi.getMenuCategory(categoryId);
-      return unwrap<MenuCategoryDto>(response);
-    },
-    enabled: !!categoryId,
+    queryKey: menuCategoryKeys.detail(categoryId ?? ""),
+    queryFn: () => storeApi.menuCategories.get(categoryId!),
+    enabled: Boolean(categoryId),
+    staleTime: 2 * 60 * 1000,
   });
-};
+}
 
-export const useCreateMenuCategory = () => {
+// ═════════════════════════════════════════════════════════════════════
+// Mutations
+// ═════════════════════════════════════════════════════════════════════
+
+export function useCreateMenuCategory() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (dto: CreateMenuCategoryDto) => {
-      const response = await storeApi.createMenuCategory(dto);
-      return unwrap<MenuCategoryDto>(response);
-    },
+
+  return useMutation<MenuCategoryDto, Error, CreateMenuCategoryDto>({
+    mutationFn: (dto) => storeApi.menuCategories.create(dto),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [MENU_CATEGORIES_KEY] });
+      queryClient.invalidateQueries({ queryKey: menuCategoryKeys.all });
     },
   });
-};
+}
 
-export const useUpdateMenuCategory = () => {
+export function useUpdateMenuCategory() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      categoryId,
-      dto,
-    }: {
-      categoryId: string;
-      dto: UpdateMenuCategoryDto;
-    }) => {
-      const response = await storeApi.updateMenuCategory(categoryId, dto);
-      return unwrap<MenuCategoryDto>(response);
+
+  return useMutation<
+    MenuCategoryDto,
+    Error,
+    { categoryId: string; dto: UpdateMenuCategoryDto }
+  >({
+    mutationFn: ({ categoryId, dto }) =>
+      storeApi.menuCategories.update(categoryId, dto),
+    onSuccess: (updated, variables) => {
+      queryClient.setQueryData(
+        menuCategoryKeys.detail(variables.categoryId),
+        updated,
+      );
+      queryClient.invalidateQueries({ queryKey: menuCategoryKeys.list() });
     },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: [MENU_CATEGORIES_KEY] });
-      queryClient.invalidateQueries({
-        queryKey: [MENU_CATEGORIES_KEY, variables.categoryId],
+  });
+}
+
+export function useDeleteMenuCategory() {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, Error, string>({
+    mutationFn: async (categoryId) => {
+      await storeApi.menuCategories.remove(categoryId);
+    },
+    onSuccess: (_data, categoryId) => {
+      queryClient.removeQueries({
+        queryKey: menuCategoryKeys.detail(categoryId),
       });
+      // Refetch the list so it no longer contains the deleted category.
+      queryClient.invalidateQueries({ queryKey: menuCategoryKeys.list() });
     },
   });
-};
+}
 
-export const useDeleteMenuCategory = () => {
+// ═════════════════════════════════════════════════════════════════════
+// Toggle availability
+// ═════════════════════════════════════════════════════════════════════
+export function useToggleMenuCategoryAvailability() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (categoryId: string) => {
-      await storeApi.deleteMenuCategory(categoryId);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [MENU_CATEGORIES_KEY] });
+
+  return useMutation<MenuCategoryDto, Error, string>({
+    mutationFn: (categoryId) =>
+      storeApi.menuCategories.toggleAvailability(categoryId),
+    onSuccess: (updated, categoryId) => {
+      // Patch caches in place — no refetch needed since the server returned
+      // the authoritative new state.
+      queryClient.setQueryData(
+        menuCategoryKeys.detail(categoryId),
+        updated,
+      );
+      queryClient.setQueryData<MenuCategoryDto[]>(
+        menuCategoryKeys.list(),
+        (prev) =>
+          prev?.map((c) => (c.id === categoryId ? updated : c)) ?? [],
+      );
     },
   });
-};
+}

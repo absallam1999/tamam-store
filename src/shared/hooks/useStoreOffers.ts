@@ -1,98 +1,164 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { storeApi } from "@/config/store.api";
 import type {
-  GroupDealDto,
-  CreateGroupDealDto,
-  UpdateGroupDealDto,
-} from "../types";
-import { storeApi } from "../../config/storeApi";
+  OfferDto,
+  CreateOfferDto,
+  UpdateOfferDto,
+} from "@shared/types";
+
+
+export type GroupDealDto = OfferDto & { type: "GroupDeal" };
+
+export type CreateGroupDealDto = Omit<CreateOfferDto, "type">;
+
+export type UpdateGroupDealDto = Omit<UpdateOfferDto, "type">;
+
+// ═════════════════════════════════════════════════════════════════════
+// Query keys
+// ═════════════════════════════════════════════════════════════════════
 
 export const GROUP_DEALS_KEY = "storeGroupDeals";
 
-function unwrap<T>(response: unknown): T {
-  if (response === null || response === undefined || response === "") {
-    return undefined as unknown as T;
-  }
+export const groupDealKeys = {
+  all: [GROUP_DEALS_KEY] as const,
+  list: () => [GROUP_DEALS_KEY, "list"] as const,
+  detail: (id: string) => [GROUP_DEALS_KEY, "detail", id] as const,
+};
 
-  if (response && typeof response === "object" && "data" in response) {
-    const data = (response as Record<string, unknown>).data;
-    return data as T;
-  }
+// ═════════════════════════════════════════════════════════════════════
+// Guard — narrow OfferDto to GroupDealDto
+// ═════════════════════════════════════════════════════════════════════
 
-  return response as T;
+function assertGroupDeal(offer: OfferDto): GroupDealDto {
+  if (offer.type !== "GroupDeal") {
+    throw new Error(
+      `Expected a GroupDeal offer, got "${offer.type ?? "Standard"}".`,
+    );
+  }
+  return offer as GroupDealDto;
 }
 
-// ============================================================
+// ═════════════════════════════════════════════════════════════════════
 // Queries
-// ============================================================
+// ═════════════════════════════════════════════════════════════════════
 
-export const useGroupDeals = () => {
+export function useGroupDeals() {
   return useQuery<GroupDealDto[]>({
-    queryKey: [GROUP_DEALS_KEY],
+    queryKey: groupDealKeys.list(),
     queryFn: async () => {
-      const response = await storeApi.getGroupDeals();
-      console.log("Raw group deals response:", response);
-      const data = unwrap<any>(response);
-      console.log("Unwrapped group deals data:", data);
-      if (data?.items) {
-        console.log("Group deals items:", data.items);
-        return data.items as GroupDealDto[];
-      }
-      if (Array.isArray(data)) return data as GroupDealDto[];
-      return [];
+      const offers = await storeApi.offers.list();
+      return offers.filter((o) => o.type === "GroupDeal") as GroupDealDto[];
     },
-    staleTime: 0,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
+    staleTime: 60_000,
   });
-};
+}
 
-export const useGroupDeal = (dealId: string) => {
+export function useGroupDeal(dealId: string | undefined) {
   return useQuery<GroupDealDto>({
-    queryKey: [GROUP_DEALS_KEY, dealId],
+    queryKey: groupDealKeys.detail(dealId ?? ""),
     queryFn: async () => {
-      const response = await storeApi.getGroupDeal(dealId);
-      return unwrap<GroupDealDto>(response);
+      const offer = await storeApi.offers.get(dealId!);
+      return assertGroupDeal(offer);
     },
-    enabled: !!dealId,
+    enabled: Boolean(dealId),
+    staleTime: 60_000,
   });
-};
+}
 
-// ============================================================
+// ═════════════════════════════════════════════════════════════════════
 // Mutations
-// ============================================================
+// ═════════════════════════════════════════════════════════════════════
 
-export const useCreateGroupDeal = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (dto: CreateGroupDealDto) => {
-      const response = await storeApi.createGroupDeal(dto);
-      return unwrap<GroupDealDto>(response);
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: [GROUP_DEALS_KEY] }),
-  });
-};
+export function useCreateGroupDeal() {
+  const queryClient = useQueryClient();
 
-export const useUpdateGroupDeal = (dealId: string) => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (dto: UpdateGroupDealDto) => {
-      const response = await storeApi.updateGroupDeal(dealId, dto);
-      return unwrap<GroupDealDto>(response);
+  return useMutation<GroupDealDto, Error, CreateGroupDealDto>({
+    mutationFn: async (dto) => {
+      // Inject the discriminator — group deals ARE offers with type="GroupDeal".
+      // Caller passes items[] for the multi-product group; the server expects
+      // items[] (not productIds[]) for GroupDeal offers.
+      const created = await storeApi.offers.create({
+        ...dto,
+        type: "GroupDeal",
+      });
+      return assertGroupDeal(created);
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [GROUP_DEALS_KEY] });
-      qc.invalidateQueries({ queryKey: [GROUP_DEALS_KEY, dealId] });
+      // Invalidate both caches — group deals are also visible in the
+      // offers list, so a fresh offer needs to appear in both UIs.
+      queryClient.invalidateQueries({ queryKey: [GROUP_DEALS_KEY] });
+      queryClient.invalidateQueries({ queryKey: ["storeOffers"] });
     },
   });
-};
+}
 
-export const useDeleteGroupDeal = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (dealId: string) => {
-      await storeApi.deleteGroupDeal(dealId);
-      // API returns 200 with no body – just return void
+/**
+ * Update — id moves into mutation args so one hook instance can edit
+ * multiple rows.
+ *
+ *   const update = useUpdateGroupDeal();
+ *   update.mutate({ dealId, dto });
+ */
+export function useUpdateGroupDeal() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    GroupDealDto,
+    Error,
+    { dealId: string; dto: UpdateGroupDealDto }
+  >({
+    mutationFn: async ({ dealId, dto }) => {
+      const updated = await storeApi.offers.update(dealId, {
+        ...dto,
+        type: "GroupDeal",
+      });
+      return assertGroupDeal(updated);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: [GROUP_DEALS_KEY] }),
+    onSuccess: (updated, variables) => {
+      queryClient.setQueryData(
+        groupDealKeys.detail(variables.dealId),
+        updated,
+      );
+      queryClient.invalidateQueries({ queryKey: groupDealKeys.list() });
+      queryClient.invalidateQueries({ queryKey: ["storeOffers"] });
+    },
   });
-};
+}
+
+export function useDeleteGroupDeal() {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, Error, string>({
+    mutationFn: async (dealId) => {
+      await storeApi.offers.remove(dealId);
+    },
+    onSuccess: (_data, dealId) => {
+      queryClient.removeQueries({ queryKey: groupDealKeys.detail(dealId) });
+      queryClient.invalidateQueries({ queryKey: groupDealKeys.list() });
+      queryClient.invalidateQueries({ queryKey: ["storeOffers"] });
+    },
+  });
+}
+
+/**
+ * Toggle active — exposes the endpoint the UI needs but the old hook
+ * never surfaced. Toggles the underlying offer's `isActive`.
+ */
+export function useToggleGroupDeal() {
+  const queryClient = useQueryClient();
+
+  return useMutation<GroupDealDto, Error, string>({
+    mutationFn: async (dealId) => {
+      const updated = await storeApi.offers.toggle(dealId);
+      return assertGroupDeal(updated);
+    },
+    onSuccess: (updated, dealId) => {
+      queryClient.setQueryData(groupDealKeys.detail(dealId), updated);
+      queryClient.setQueryData<GroupDealDto[]>(
+        groupDealKeys.list(),
+        (prev) => prev?.map((g) => (g.id === dealId ? updated : g)) ?? [],
+      );
+      queryClient.invalidateQueries({ queryKey: ["storeOffers"] });
+    },
+  });
+}

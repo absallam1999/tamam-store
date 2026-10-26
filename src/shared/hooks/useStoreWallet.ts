@@ -1,165 +1,188 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api-client";
-import { ENDPOINTS } from "@/config/api";
-import type { StoreWalletDto, CreateWithdrawalDto } from "@shared/types";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { storeApi } from "@/config/store.api";
+import type {
+  PagedResult,
+  PaymentNumberDto,
+  RequestWithdrawalDto,
+  SubmitTopUpRequestDto,
+  TopUpFilterDto,
+  TopUpRequestDto,
+  WalletSummaryDto,
+  WalletTransactionDto,
+  WithdrawalDto,
+  WithdrawalStatus,
+} from "@shared/types";
 
 // ============================================
 // Query Keys
 // ============================================
 
 export const STORE_WALLET_KEY = "store-wallet";
-export const WALLET_REQUESTS_KEY = "wallet-requests";
-export const PAYMENT_NUMBERS_KEY = "payment-numbers";
+export const WALLET_WITHDRAWALS_KEY = "wallet-withdrawals";
+export const WALLET_TRANSACTIONS_KEY = "wallet-transactions";
+export const WALLET_TOPUPS_KEY = "wallet-topups";
+export const WALLET_PAYMENT_NUMBERS_KEY = "wallet-payment-numbers";
 
 // ============================================
-// Types
+// Filters
 // ============================================
 
-export interface WalletRequestDto {
-  id: string;
-  amount: number;
-  status: string;
-  type: string;
-  createdAt: string;
-  phoneFrom?: string;
-  paymentMethod?: string;
-  screenshotUrl?: string;
-  adminNotes?: string | null;
-  processedAt?: string | null;
+export interface WithdrawalFilters {
+  status?: WithdrawalStatus | string;
+  from?: string;
+  to?: string;
+  pageIndex?: number;
+  pageSize?: number;
 }
 
-export interface PaymentNumberDto {
-  id: string;
-  phoneNumber: string;
-  paymentMethod: string;
-  label: string;
-  isActive: boolean;
-}
-
-// ============================================
-// Helpers
-// ============================================
-
-function unwrap<T>(response: unknown): T {
-  if (response && typeof response === "object") {
-    const resp = response as Record<string, unknown>;
-    if ("data" in resp) {
-      const inner = resp.data as Record<string, unknown>;
-      if ("data" in inner) return inner.data as T;
-      if ("Data" in inner) return inner.Data as T;
-      return inner as T;
-    }
-    if ("Data" in resp) return resp.Data as T;
-  }
-  return response as T;
-}
-
-function checkApiError(response: any): void {
-  const responseData = response?.data || response;
-  const isSuccess = responseData?.Success ?? responseData?.success;
-  if (isSuccess === false) {
-    const message =
-      responseData?.Message ||
-      responseData?.message ||
-      (responseData?.Errors?.[0]) ||
-      (responseData?.errors?.[0]) ||
-      "An error occurred";
-    throw new Error(message);
-  }
+export interface TransactionFilters {
+  type?: string;
+  orderId?: string;
+  from?: string;
+  to?: string;
+  pageIndex?: number;
+  pageSize?: number;
 }
 
 // ============================================
-// Hooks
+// WALLET SUMMARY — GET /api/wallet
 // ============================================
 
-export const useWallet = () => {
-  return useQuery<StoreWalletDto>({
+export function useWallet() {
+  return useQuery<WalletSummaryDto>({
     queryKey: [STORE_WALLET_KEY],
-    queryFn: async () => {
-      const response = await apiClient.get(ENDPOINTS.STORE.WALLET);
-      const data = unwrap<any>(response);
-      return {
-        balance: data?.balance ?? data?.availableBalance ?? data?.walletBalance ?? 0,
-        currency: data?.currency ?? "EGP",
-        transactions: data?.transactions ?? data?.recentTransactions ?? [],
-        pendingWithdrawals: data?.pendingWithdrawals ?? [],
-        totalEarnings: data?.totalEarnings ?? data?.balance ?? 0,
-      } as StoreWalletDto;
-    },
+    queryFn: () => storeApi.wallet.get(),
     staleTime: 30_000,
     refetchOnMount: true,
     retry: 2,
   });
-};
+}
 
-export const useWalletRequests = () => {
-  return useQuery<WalletRequestDto[]>({
-    queryKey: [WALLET_REQUESTS_KEY],
-    queryFn: async () => {
-      const response = await apiClient.get("/api/wallet/my-requests");
-      const data = unwrap<any>(response);
-      let requests: any[] = [];
-      if (Array.isArray(data)) requests = data;
-      else if (data?.items) requests = data.items;
-      else if (data?.requests) requests = data.requests;
-      return requests.map((r: any) => ({
-        id: r.id || "",
-        amount: Number(r.amount) || 0,
-        status: r.status || "Pending",
-        type: "Deposit",
-        createdAt: r.createdAt || "",
-        phoneFrom: r.phoneFrom || undefined,
-        paymentMethod: r.paymentMethod || undefined,
-        screenshotUrl: r.screenshotUrl || undefined,
-        adminNotes: r.adminNotes || null,
-        processedAt: r.processedAt || null,
-      })) as WalletRequestDto[];
-    },
+// ============================================
+// TRANSACTIONS — GET /api/wallet/transactions
+// ============================================
+
+export function useWalletTransactions(filters?: TransactionFilters) {
+  return useQuery<PagedResult<WalletTransactionDto>>({
+    queryKey: [WALLET_TRANSACTIONS_KEY, filters ?? {}],
+    queryFn: () => storeApi.wallet.transactions(filters),
+    staleTime: 30_000,
+  });
+}
+
+export function useWalletTransaction(id: string) {
+  return useQuery<WalletTransactionDto>({
+    queryKey: [WALLET_TRANSACTIONS_KEY, "detail", id],
+    queryFn: () => storeApi.wallet.transaction(id),
+    enabled: !!id,
+    staleTime: 60_000,
+  });
+}
+
+// ============================================
+// WITHDRAWALS — GET /api/wallet/withdrawals
+// ============================================
+
+export function useWithdrawals(filters?: WithdrawalFilters) {
+  return useQuery<PagedResult<WithdrawalDto>>({
+    queryKey: [WALLET_WITHDRAWALS_KEY, filters ?? {}],
+    queryFn: () => storeApi.wallet.withdrawals(filters),
     staleTime: 30_000,
     refetchOnMount: true,
   });
-};
+}
 
-export const usePaymentNumbers = () => {
-  return useQuery<PaymentNumberDto[]>({
-    queryKey: [PAYMENT_NUMBERS_KEY],
-    queryFn: async () => {
-      const response = await apiClient.get("/api/wallet/payment-numbers");
-      const data = unwrap<any>(response);
-      let numbers: any[] = [];
-      if (Array.isArray(data)) numbers = data;
-      else if (data?.items) numbers = data.items;
-      else if (data?.data) numbers = data.data;
-      return numbers
-        .filter((n: any) => n.isActive === true)
-        .map((n: any) => ({
-          id: n.id || "",
-          phoneNumber: n.phoneNumber || "",
-          paymentMethod: n.paymentMethod || "",
-          label: n.label || "",
-          isActive: n.isActive ?? true,
-        })) as PaymentNumberDto[];
-    },
-    staleTime: 60_000,
-    refetchOnMount: true,
-  });
-};
+export const useWalletRequests = useWithdrawals;
 
-export const useWithdrawFromWallet = () => {
+export function useRequestWithdrawal() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (dto: CreateWithdrawalDto) => {
-      const response: any = await apiClient.post(ENDPOINTS.STORE.WALLET_WITHDRAW, dto);
-      checkApiError(response);
-      return response;
-    },
+
+  return useMutation<WithdrawalDto, Error, RequestWithdrawalDto>({
+    mutationFn: (dto) => storeApi.wallet.requestWithdrawal(dto),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [STORE_WALLET_KEY] });
-      qc.invalidateQueries({ queryKey: [WALLET_REQUESTS_KEY] });
-      qc.refetchQueries({ queryKey: [STORE_WALLET_KEY] });
-    },
-    onError: (error: Error) => {
-      console.error("❌ Withdraw failed:", error.message);
+      qc.invalidateQueries({ queryKey: [WALLET_WITHDRAWALS_KEY] });
+      qc.invalidateQueries({ queryKey: [WALLET_TRANSACTIONS_KEY] });
     },
   });
+}
+
+export const useWithdrawFromWallet = useRequestWithdrawal;
+
+export function useCancelWithdrawal() {
+  const qc = useQueryClient();
+
+  return useMutation<WithdrawalDto, Error, string>({
+    mutationFn: (id) => storeApi.wallet.cancelWithdrawal(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [STORE_WALLET_KEY] });
+      qc.invalidateQueries({ queryKey: [WALLET_WITHDRAWALS_KEY] });
+    },
+  });
+}
+
+// ============================================
+// TOP-UP / DEPOSIT
+// ============================================
+
+export function usePaymentNumbers() {
+  return useQuery<PaymentNumberDto[]>({
+    queryKey: [WALLET_PAYMENT_NUMBERS_KEY],
+    queryFn: () => storeApi.wallet.getPaymentNumbers(),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useSubmitTopUp() {
+  const qc = useQueryClient();
+
+  return useMutation<TopUpRequestDto, Error, SubmitTopUpRequestDto>({
+    mutationFn: (dto) => storeApi.wallet.submitTopUp(dto),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [WALLET_TOPUPS_KEY] });
+    },
+  });
+}
+
+export function useMyTopUps(filters?: TopUpFilterDto) {
+  return useQuery<PagedResult<TopUpRequestDto>>({
+    queryKey: [WALLET_TOPUPS_KEY, filters ?? {}],
+    queryFn: () => storeApi.wallet.getTopUps(filters),
+    staleTime: 30_000,
+    refetchOnMount: true,
+    refetchInterval: (query) => {
+      const page = query.state.data as PagedResult<TopUpRequestDto> | undefined;
+      const hasPending = page?.items?.some((t) => t.status === "Pending") ?? false;
+      return hasPending ? 30_000 : false;
+    },
+  });
+}
+
+export function useTopUpStatus(id: string | undefined) {
+  return useQuery<TopUpRequestDto>({
+    queryKey: [WALLET_TOPUPS_KEY, "detail", id ?? ""],
+    queryFn: () => storeApi.wallet.getTopUpById(id!),
+    enabled: !!id,
+    staleTime: 10_000,
+    refetchInterval: (query) => {
+      const data = query.state.data as TopUpRequestDto | undefined;
+      return data?.status === "Pending" ? 30_000 : false;
+    },
+  });
+}
+
+// ============================================
+// Re-exports
+// ============================================
+
+export type {
+  PaymentNumberDto,
+  RequestWithdrawalDto,
+  SubmitTopUpRequestDto,
+  TopUpFilterDto,
+  TopUpRequestDto,
+  WalletSummaryDto,
+  WalletTransactionDto,
+  WithdrawalDto,
+  WithdrawalStatus,
 };

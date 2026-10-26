@@ -1,62 +1,37 @@
-import { Link, useLocation } from "react-router-dom";
+import React from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useLanguage } from "@/shared/hooks/useLanguage";
-import { useTheme } from "@app/providers/ThemeProvider";
 import { cn } from "@shared/utils/cn";
-
-/**
- * NotFoundPage — Premium Bilingual 404 Error Page
- */
 
 // ============================================
 // Translations
 // ============================================
 
 const t = {
+  errorCode: { ar: "خطأ ٤٠٤", en: "Error 404" },
   title: { ar: "الصفحة غير موجودة", en: "Page Not Found" },
   description: {
-    ar: "عذراً، الصفحة التي تبحث عنها غير موجودة أو تم نقلها.",
-    en: "Sorry, the page you're looking for doesn't exist or has been moved.",
+    ar: "عذراً، لم نتمكن من العثور على الصفحة التي تبحث عنها. ربما تم نقلها أو حذفها.",
+    en: "Sorry, we couldn't find the page you're looking for. It might have been moved or removed.",
   },
-  errorCode: { ar: "خطأ ٤٠٤", en: "Error 404" },
-  suggestions: { ar: "ربما تبحث عن:", en: "You might be looking for:" },
-  dashboard: { ar: "لوحة التحكم", en: "Dashboard" },
-  goBack: { ar: "العودة للخلف", en: "Go Back" },
-  signIn: { ar: "تسجيل الدخول", en: "Sign In" },
+  attemptedUrl: { ar: "المسار المطلوب:", en: "Requested path:" },
+  goBack: { ar: "الرجوع للخلف", en: "Go Back" },
+  home: { ar: "الرئيسية", en: "Dashboard Home" },
+  suggestions: { ar: "روابط سريعة مقترحة", en: "Suggested Quick Links" },
   orders: { ar: "الطلبات", en: "Orders" },
   products: { ar: "المنتجات", en: "Products" },
-  settings: { ar: "الإعدادات", en: "Settings" },
   menu: { ar: "قائمة الطعام", en: "Menu" },
   wallet: { ar: "المحفظة", en: "Wallet" },
-  needHelp: { ar: "هل تحتاج مساعدة؟", en: "Need help?" },
-  contactSupport: { ar: "تواصل مع الدعم الفني", en: "Contact Support" },
-  or: { ar: "أو", en: "or" },
+  settings: { ar: "الإعدادات", en: "Settings" },
+  helpTitle: { ar: "هل ما زلت بحاجة للمساعدة؟", en: "Still need help?" },
+  contactSupport: { ar: "فريق الدعم الفني", en: "Support Team" },
 };
 
 // ============================================
-// Quick Links
+// Quick Navigation Shortcuts
 // ============================================
 
 const quickLinks = [
-  {
-    to: "/dashboard",
-    labelAr: t.dashboard.ar,
-    labelEn: t.dashboard.en,
-    icon: (
-      <svg
-        className="w-4 h-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth={1.5}
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"
-        />
-      </svg>
-    ),
-  },
   {
     to: "/dashboard/orders",
     labelAr: t.orders.ar,
@@ -66,7 +41,7 @@ const quickLinks = [
         className="w-4 h-4"
         fill="none"
         viewBox="0 0 24 24"
-        strokeWidth={1.5}
+        strokeWidth={1.75}
         stroke="currentColor"
       >
         <path
@@ -86,33 +61,13 @@ const quickLinks = [
         className="w-4 h-4"
         fill="none"
         viewBox="0 0 24 24"
-        strokeWidth={1.5}
+        strokeWidth={1.75}
         stroke="currentColor"
       >
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
           d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z"
-        />
-      </svg>
-    ),
-  },
-  {
-    to: "/dashboard/menu",
-    labelAr: t.menu.ar,
-    labelEn: t.menu.en,
-    icon: (
-      <svg
-        className="w-4 h-4"
-        fill="none"
-        viewBox="0 0 24 24"
-        strokeWidth={1.5}
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25"
         />
       </svg>
     ),
@@ -126,7 +81,7 @@ const quickLinks = [
         className="w-4 h-4"
         fill="none"
         viewBox="0 0 24 24"
-        strokeWidth={1.5}
+        strokeWidth={1.75}
         stroke="currentColor"
       >
         <path
@@ -146,7 +101,7 @@ const quickLinks = [
         className="w-4 h-4"
         fill="none"
         viewBox="0 0 24 24"
-        strokeWidth={1.5}
+        strokeWidth={1.75}
         stroke="currentColor"
       >
         <path
@@ -170,76 +125,73 @@ const quickLinks = [
 
 export const NotFoundPage: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { currentLanguage } = useLanguage();
-  const { resolvedTheme } = useTheme();
 
   const isAr = currentLanguage === "ar";
-  const isDark = resolvedTheme === "dark";
   const lang = (obj: { ar: string; en: string }) => (isAr ? obj.ar : obj.en);
   const attemptedPath = location.pathname;
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-surface-50 dark:bg-surface-950">
-      <div className="w-full max-w-2xl">
+    <main
+      className="relative min-h-[calc(100vh-4rem)] flex items-center justify-center p-4 sm:p-6 lg:p-8 overflow-hidden"
+      dir={isAr ? "rtl" : "ltr"}
+    >
+      {/* Background Decorative Gradient Orbs */}
+      <div className="absolute top-1/4 -start-24 w-80 h-80 sm:w-96 sm:h-96 rounded-full bg-primary-500/10 dark:bg-primary-500/15 blur-3xl pointer-events-none -z-10" />
+      <div className="absolute bottom-1/4 -end-24 w-80 h-80 sm:w-96 sm:h-96 rounded-full bg-amber-500/10 dark:bg-amber-500/10 blur-3xl pointer-events-none -z-10" />
+
+      <div className="w-full max-w-2xl relative z-10 flex flex-col items-center">
         {/* ============================================ */}
-        {/* Large 404 Display */}
+        {/* Interactive Visual Illustration */}
         {/* ============================================ */}
         <div
-          className="relative mb-8 sm:mb-10 select-none flex justify-center items-center h-48 sm:h-56"
+          className="relative mb-4 sm:mb-6 select-none flex justify-center items-center w-full h-44 sm:h-52"
           aria-hidden="true"
         >
-          {/* Ambient Map Glow */}
-          <div className="absolute inset-0 -z-10 flex items-center justify-center">
-            <div className="w-64 h-64 sm:w-80 sm:h-80 rounded-full bg-primary-100/40 dark:bg-primary-900/20 blur-3xl" />
-          </div>
-
-          {/* Stylized Background Route/Map Pattern */}
+          {/* Subtle Route Network Background Pattern */}
           <svg
-            className="absolute inset-0 w-full h-full -z-10 opacity-20 dark:opacity-[0.15]"
+            className="absolute inset-0 w-full h-full opacity-25 dark:opacity-20 pointer-events-none"
             viewBox="0 0 500 200"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
           >
-            {/* Dashed Route Path */}
             <path
-              d="M 50,150 C 100,150 150,50 250,50 C 350,50 400,120 480,120"
+              d="M 40,150 C 110,150 140,50 250,50 C 360,50 390,130 460,130"
               stroke="currentColor"
               className="text-primary-500 dark:text-primary-400"
-              strokeWidth="2"
+              strokeWidth="2.5"
               strokeDasharray="6 6"
               strokeLinecap="round"
             />
-            {/* Route Nodes */}
             <circle
-              cx="50"
+              cx="40"
               cy="150"
-              r="4"
+              r="5"
               fill="currentColor"
               className="text-surface-400 dark:text-surface-500"
             />
             <circle
               cx="150"
-              cy="98"
-              r="3"
+              cy="85"
+              r="4"
               fill="currentColor"
-              className="text-surface-300 dark:text-surface-600"
+              className="text-primary-500/50"
             />
             <circle
               cx="350"
-              cy="85"
-              r="3"
+              cy="80"
+              r="4"
               fill="currentColor"
-              className="text-surface-300 dark:text-surface-600"
+              className="text-primary-500/50"
             />
             <circle
-              cx="480"
-              cy="120"
-              r="4"
+              cx="460"
+              cy="130"
+              r="5"
               fill="currentColor"
               className="text-surface-400 dark:text-surface-500"
             />
-
-            {/* Delivery/Map grid lines */}
             <line
               x1="0"
               y1="100"
@@ -248,35 +200,26 @@ export const NotFoundPage: React.FC = () => {
               stroke="currentColor"
               className="text-surface-200 dark:text-surface-800"
               strokeWidth="1"
-            />
-            <line
-              x1="250"
-              y1="0"
-              x2="250"
-              y2="200"
-              stroke="currentColor"
-              className="text-surface-200 dark:text-surface-800"
-              strokeWidth="1"
+              strokeDasharray="4 4"
             />
           </svg>
 
-          {/* Typography & Map Pin Graphic */}
-          <div className="flex items-center justify-center gap-2 sm:gap-4 relative">
-            {/* Number 4 */}
-            <span className="text-[100px] sm:text-[140px] md:text-[160px] font-black leading-none tracking-tighter bg-gradient-to-br from-primary-400 via-primary-500 to-primary-600 bg-clip-text text-transparent dark:from-primary-300 dark:via-primary-400 dark:to-emerald-400 drop-shadow-sm">
+          {/* Pin - Typography Graphic */}
+          <div className="flex items-center justify-center gap-1 sm:gap-3 relative">
+            <span className="text-[96px] sm:text-[132px] md:text-[150px] font-black leading-none tracking-tighter bg-gradient-to-br from-primary-400 via-primary-500 to-primary-700 bg-clip-text text-transparent dark:from-primary-300 dark:via-primary-400 dark:to-primary-600 drop-shadow-sm">
               4
             </span>
 
-            {/* Map Pin as "0" */}
-            <div className="relative flex flex-col items-center justify-end h-[100px] sm:h-[140px] md:h-[160px] w-[80px] sm:w-[110px]">
+            {/* Map Pin as the central 0 */}
+            <div className="relative flex flex-col items-center justify-end h-[100px] sm:h-[130px] w-[70px] sm:w-[90px]">
               <div
-                className="absolute top-0 w-20 h-20 sm:w-28 sm:h-28 text-primary-500 dark:text-primary-400 animate-bounce"
-                style={{ animationDuration: "2s" }}
+                className="absolute top-0 w-16 h-16 sm:w-20 sm:h-20 text-primary-500 dark:text-primary-400 animate-bounce"
+                style={{ animationDuration: "2.4s" }}
               >
                 <svg
                   viewBox="0 0 24 24"
                   fill="currentColor"
-                  className="w-full h-full drop-shadow-lg"
+                  className="w-full h-full drop-shadow-md"
                 >
                   <path
                     fillRule="evenodd"
@@ -285,92 +228,128 @@ export const NotFoundPage: React.FC = () => {
                   />
                 </svg>
               </div>
-              {/* Pin Drop Shadow / Pulse */}
               <div
-                className="absolute bottom-2 w-10 h-2 sm:w-14 sm:h-3 bg-surface-900/10 dark:bg-surface-900/40 rounded-[100%] blur-sm animate-pulse"
-                style={{ animationDuration: "2s" }}
+                className="absolute bottom-1 w-10 sm:w-14 h-2 bg-surface-900/15 dark:bg-surface-950/60 rounded-full blur-[2px] animate-pulse"
+                style={{ animationDuration: "2.4s" }}
               />
             </div>
 
-            {/* Number 4 */}
-            <span className="text-[100px] sm:text-[140px] md:text-[160px] font-black leading-none tracking-tighter bg-gradient-to-br from-emerald-500 via-primary-500 to-primary-400 bg-clip-text text-transparent dark:from-emerald-400 dark:via-primary-400 dark:to-primary-300 drop-shadow-sm">
+            <span className="text-[96px] sm:text-[132px] md:text-[150px] font-black leading-none tracking-tighter bg-gradient-to-bl from-primary-400 via-primary-500 to-primary-700 bg-clip-text text-transparent dark:from-primary-300 dark:via-primary-400 dark:to-primary-600 drop-shadow-sm">
               4
             </span>
           </div>
         </div>
 
         {/* ============================================ */}
-        {/* Content Card */}
+        {/* Main Glassmorphism Container */}
         {/* ============================================ */}
-        <div className="glass glass-elevated p-6 sm:p-8 md:p-10 rounded-3xl animate-fade-in-up stagger-2 shadow-xl">
-          <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-2xl bg-surface-100 dark:bg-surface-800/80 flex items-center justify-center mx-auto mb-5 sm:mb-6 ring-1 ring-surface-200 dark:ring-surface-700 shadow-sm">
-            <svg
-              className="w-8 h-8 sm:w-9 sm:h-9 text-surface-400 dark:text-surface-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.2}
-              stroke="currentColor"
-            >
-              <circle cx="12" cy="12" r="10" />
-              <path strokeLinecap="round" d="M12 2v4m0 12v4M2 12h4m12 0h4" />
-              <circle cx="12" cy="12" r="2.5" fill="currentColor" />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="m14.5 14.5 4 4"
-                strokeWidth={2.5}
-              />
-            </svg>
+        <div className="w-full glass glass-elevated p-6 sm:p-9 rounded-3xl animate-fade-in-up">
+          {/* Status Badge */}
+          <div className="flex justify-center mb-3">
+            <span className="badge badge-warning text-xs font-semibold px-3 py-1 shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-warning-500 animate-ping inline-block mr-1" />
+              {lang(t.errorCode)}
+            </span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-surface-900 dark:text-surface-100 mb-3 text-center">
-            {lang(t.title)}
-          </h1>
-          <p className="text-sm sm:text-base text-surface-500 dark:text-surface-400 mb-6 leading-relaxed text-center max-w-lg mx-auto">
-            {lang(t.description)}
-          </p>
+
+          {/* Heading & Subtitle */}
+          <div className="text-center mb-6">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-surface-900 dark:text-surface-100 mb-2">
+              {lang(t.title)}
+            </h1>
+            <p className="text-sm sm:text-base text-surface-600 dark:text-surface-400 max-w-md mx-auto leading-relaxed">
+              {lang(t.description)}
+            </p>
+          </div>
+
+          {/* Requested URL Chip */}
           {attemptedPath && attemptedPath !== "/" && (
             <div className="flex justify-center mb-6">
-              <div
-                className={cn(
-                  "inline-flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 shadow-sm",
-                  isAr ? "flex-row-reverse" : "flex-row",
-                )}
-              >
-                <svg
-                  className="w-4 h-4 text-surface-400 dark:text-surface-500 flex-shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
-                  />
-                </svg>
-                <code className="text-sm font-mono font-medium text-surface-600 dark:text-surface-400 break-all">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl glass-subtle text-xs sm:text-sm font-mono text-surface-600 dark:text-surface-300 max-w-full">
+                <span className="text-surface-400 font-sans text-xs">
+                  {lang(t.attemptedUrl)}
+                </span>
+                <span className="font-semibold text-primary-600 dark:text-primary-400 truncate max-w-[240px] sm:max-w-xs">
                   {attemptedPath}
-                </code>
+                </span>
               </div>
             </div>
           )}
-          <div className="mb-8">
-            <p className="text-start text-xs font-semibold text-surface-400 dark:text-surface-500 uppercase tracking-wider mb-3">
+
+          {/* Primary Action Buttons */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className={cn(
+                "btn btn-secondary w-full sm:w-auto min-w-[140px]",
+                "shadow-sm hover:shadow-glass-hover",
+                "bg-surface-100 dark:bg-surface-800",
+                "text-surface-700 dark:text-surface-200",
+                "border border-surface-200/80 dark:border-surface-700",
+                "hover:bg-surface-200/80 dark:hover:bg-surface-700",
+                "hover:border-surface-300 dark:hover:border-surface-600",
+                "transition-all duration-fast",
+              )}
+            >
+              <svg
+                className="w-4 h-4 icon-rtl text-surface-500 dark:text-surface-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
+                />
+              </svg>
+              <span>{lang(t.goBack)}</span>
+            </button>
+
+            <Link
+              to="/dashboard"
+              className={cn(
+                "btn btn-primary w-full sm:w-auto min-w-[140px]",
+                "shadow-sm hover:shadow-glass-hover",
+                "transition-all duration-fast",
+              )}
+            >
+              <svg
+                className="w-4 h-4 icon-rtl"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"
+                />
+              </svg>
+              <span>{lang(t.home)}</span>
+            </Link>
+          </div>
+
+          {/* Quick Links Section */}
+          <div className="pt-6 border-t border-surface-200/80 dark:border-surface-800">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-surface-400 dark:text-surface-500 mb-3 text-start">
               {lang(t.suggestions)}
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {quickLinks.map((link, idx) => (
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {quickLinks.map((link) => (
                 <Link
                   key={link.to}
                   to={link.to}
                   className={cn(
-                    "flex items-center gap-2.5 p-3 rounded-xl transition-all duration-200 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 hover:shadow-sm hover:-translate-y-0.5 active:scale-[0.98] text-surface-700 dark:text-surface-300 hover:text-surface-900 dark:hover:text-surface-100 text-sm font-medium group stagger-" +
-                      (idx + 1),
-                    isAr ? "flex-row-reverse text-right" : "flex-row text-left",
+                    "glass-subtle glass-interactive flex items-center gap-2.5 p-2.5 sm:p-3 rounded-xl",
+                    "text-xs sm:text-sm font-medium text-surface-700 dark:text-surface-300",
+                    "hover:text-primary-600 dark:hover:text-primary-400 transition-colors duration-fast group",
                   )}
                 >
-                  <span className="text-primary-500 dark:text-primary-400 flex-shrink-0 transition-transform duration-200 group-hover:scale-110">
+                  <span className="text-primary-500 dark:text-primary-400 transition-transform duration-fast group-hover:scale-110 flex-shrink-0">
                     {link.icon}
                   </span>
                   <span className="truncate">
@@ -380,24 +359,17 @@ export const NotFoundPage: React.FC = () => {
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-4 my-6">
-            <div className="flex-1 h-px bg-surface-200 dark:bg-surface-700" />
-            <span className="text-xs text-surface-400 dark:text-surface-500 font-medium">
-              {lang(t.or)}
-            </span>
-            <div className="flex-1 h-px bg-surface-200 dark:bg-surface-700" />
-          </div>
-          <div className="text-center">
+
+          {/* Support Footer */}
+          <div className="mt-8 pt-4 flex items-center justify-center">
             <a
-              href="https://tamaam.cloud/contact"
+              href="https://tamamapp.net/contact"
               target="_blank"
               rel="noopener noreferrer"
-              className={cn(
-                "inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm text-surface-600 dark:text-surface-400 bg-surface-100 dark:bg-surface-800 hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-primary-600 dark:hover:text-primary-400 transition-all duration-200 group border border-surface-200 dark:border-surface-700",
-              )}
+              className="btn btn-ghost btn-sm text-xs text-surface-500 dark:text-surface-400 hover:text-primary-600 dark:hover:text-primary-400 transition-all inline-flex items-center gap-1.5"
             >
               <svg
-                className="w-4 h-4 transition-transform duration-200 group-hover:scale-110"
+                className="w-4 h-4 text-surface-400"
                 fill="none"
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
@@ -409,15 +381,15 @@ export const NotFoundPage: React.FC = () => {
                   d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"
                 />
               </svg>
-              <span>{lang(t.needHelp)}</span>
-              <span className="font-semibold text-primary-600 dark:text-primary-400 group-hover:underline underline-offset-2">
+              <span>{lang(t.helpTitle)}</span>
+              <span className="font-semibold text-primary-600 dark:text-primary-400 underline underline-offset-4">
                 {lang(t.contactSupport)}
               </span>
             </a>
           </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 };
 

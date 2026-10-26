@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useLanguage } from "@/shared/hooks/useLanguage";
 import { useToast } from "@shared/components/Toaster";
 import { cn } from "@shared/utils/cn";
@@ -8,8 +8,14 @@ import {
   useCreateCoupon,
   useUpdateCoupon,
   useDeleteCoupon,
+  useToggleCoupon,
 } from "@shared/hooks/useStoreCoupons";
-import type { CouponDto } from "@shared/types";
+import type {
+  StoreCouponDto,
+  CouponType,
+  CreateCouponDto,
+  UpdateCouponDto,
+} from "@shared/types";
 
 // ============================================================
 // Translations
@@ -59,18 +65,15 @@ const t = {
   deleted: { ar: "تم حذف الكوبون", en: "Coupon deleted" },
   error: { ar: "حدث خطأ", en: "An error occurred" },
   optional: { ar: "اختياري", en: "Optional" },
-  usageCount: { ar: "مرة", en: "times" },
   saving: { ar: "جاري الحفظ...", en: "Saving..." },
   discountType: { ar: "نوع الخصم", en: "Discount Type" },
-  ends: { ar: "ينتهي", en: "Ends" },
-  pendingApproval: {
-    ar: "بانتظار موافقة الإدارة",
-    en: "Awaiting admin approval",
-  },
+  activate: { ar: "تفعيل", en: "Activate" },
+  deactivate: { ar: "إيقاف", en: "Deactivate" },
   cannotEditApproved: {
     ar: "لا يمكن تعديل كوبون تمت الموافقة عليه",
     en: "Cannot edit an approved coupon",
   },
+  toggleSuccess: { ar: "تم تحديث حالة الكوبون", en: "Coupon status updated" },
 };
 
 // ============================================================
@@ -86,17 +89,9 @@ const formatDate = (date: string, isAr: boolean): string => {
   });
 };
 
-const isEditable = (coupon: CouponDto): boolean => {
-  // Only allow editing if approval status is "Pending" (not yet reviewed by admin)
-  const status = (coupon as any).approvalStatus;
-  return !status || status === "Pending";
-};
-
-const getApprovalStatus = (coupon: CouponDto): string => {
-  const status = (coupon as any).approvalStatus;
-  if (!status) return "active"; // Legacy coupons without status
-  return status.toLowerCase();
-};
+/** Only pending coupons can be edited. Approved / rejected are locked. */
+const isEditable = (coupon: StoreCouponDto): boolean =>
+  coupon.approvalStatus === "Pending";
 
 // ============================================================
 // CouponForm Modal
@@ -105,7 +100,7 @@ const getApprovalStatus = (coupon: CouponDto): string => {
 interface CouponFormProps {
   isOpen: boolean;
   onClose: () => void;
-  initial?: CouponDto | null;
+  initial?: StoreCouponDto | null;
   isAr: boolean;
   lang: (obj: { ar: string; en: string }) => string;
 }
@@ -119,15 +114,11 @@ const CouponForm: React.FC<CouponFormProps> = ({
 }) => {
   const toast = useToast();
   const createMutation = useCreateCoupon();
-  const updateMutation = useUpdateCoupon(initial?.id || "");
+  const updateMutation = useUpdateCoupon(); // ← no id here anymore
 
   const [code, setCode] = useState(initial?.code ?? "");
-  const [type, setType] = useState<string>(
-    initial
-      ? initial.type === "Percentage"
-        ? "Percentage"
-        : "Fixed"
-      : "Percentage",
+  const [type, setType] = useState<CouponType>(
+    initial?.type === "Fixed" ? "Fixed" : "Percentage",
   );
   const [value, setValue] = useState(initial?.value?.toString() ?? "");
   const [minOrder, setMinOrder] = useState(
@@ -179,42 +170,43 @@ const CouponForm: React.FC<CouponFormProps> = ({
     }
 
     try {
-      const payload = {
+      // ── Shared payload (matches CreateCouponDto exactly) ────────
+      const basePayload: CreateCouponDto = {
         code: code.trim().toUpperCase(),
-        type: type, // "Percentage" or "Fixed"
+        type,
         value: couponValue,
-        minimumOrderAmount: minOrder ? parseFloat(minOrder) : 0,
+        // undefined = no limit. Do NOT send 0 — server treats 0 as "zero allowed".
+        minimumOrderAmount: minOrder ? parseFloat(minOrder) : undefined,
         maximumDiscount:
-          type === "Fixed" ? 0 : maxDiscount ? parseFloat(maxDiscount) : 0,
+          type === "Percentage" && maxDiscount
+            ? parseFloat(maxDiscount)
+            : undefined,
         maxUsageCount: parseInt(maxUsage) || 100,
-        maxPerCustomer: perCustomer ? parseInt(perCustomer) : 0,
+        maxPerCustomer: perCustomer ? parseInt(perCustomer) : undefined,
         validFrom: new Date(validFrom + "T00:00:00").toISOString(),
         validTo: new Date(validTo + "T23:59:59").toISOString(),
         startTime: "00:00:00",
         endTime: "23:59:59",
       };
 
-      console.log(
-        "Submitting coupon payload:",
-        JSON.stringify(payload, null, 2),
-      );
-
       if (initial) {
-        const updatePayload = {
-          ...payload,
+        const updatePayload: UpdateCouponDto = {
+          ...basePayload,
           isActive: initial.isActive,
         };
-        await updateMutation.mutateAsync(updatePayload as any);
+        await updateMutation.mutateAsync({
+          couponId: initial.id,
+          dto: updatePayload,
+        });
         toast.success(lang(t.updated));
       } else {
-        await createMutation.mutateAsync(payload as any);
+        await createMutation.mutateAsync(basePayload);
         toast.success(lang(t.created));
       }
       onClose();
-    } catch (err: any) {
-      const errorMessage = err?.message || lang(t.error);
-      console.error("Coupon submission error:", err);
-      toast.error(errorMessage);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : lang(t.error);
+      toast.error(message);
     }
   };
 
@@ -289,7 +281,7 @@ const CouponForm: React.FC<CouponFormProps> = ({
               <label className={labelClasses}>{lang(t.discountType)}</label>
               <select
                 value={type}
-                onChange={(e) => setType(e.target.value)}
+                onChange={(e) => setType(e.target.value as CouponType)}
                 className={inputClasses}
               >
                 <option value="Percentage">{lang(t.percentage)}</option>
@@ -468,17 +460,18 @@ export const CouponsPage: React.FC = () => {
 
   const { data: couponsData, isLoading } = useCoupons();
   const deleteCoupon = useDeleteCoupon();
+  const toggleCoupon = useToggleCoupon();
 
   const [showForm, setShowForm] = useState(false);
-  const [editingCoupon, setEditingCoupon] = useState<CouponDto | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  const coupons = useMemo(
-    () => (Array.isArray(couponsData) ? couponsData : []),
-    [couponsData],
+  const [editingCoupon, setEditingCoupon] = useState<StoreCouponDto | null>(
+    null,
   );
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const handleEditClick = (coupon: CouponDto) => {
+  const coupons: StoreCouponDto[] = couponsData ?? [];
+
+  const handleEditClick = (coupon: StoreCouponDto) => {
     if (!isEditable(coupon)) {
       toast.error(lang(t.cannotEditApproved));
       return;
@@ -499,9 +492,26 @@ export const CouponsPage: React.FC = () => {
     }
   };
 
-  const getStatusConfig = (coupon: CouponDto) => {
-    const status = getApprovalStatus(coupon);
-    if (status === "pending") {
+  const handleToggle = async (id: string) => {
+    setTogglingId(id);
+    try {
+      await toggleCoupon.mutateAsync(id);
+      toast.success(lang(t.toggleSuccess));
+    } catch {
+      toast.error(lang(t.error));
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  /**
+   * Status pill config.
+   * Priority: Pending → Rejected → Approved(active/inactive).
+   * Pending and Rejected always override `isActive` — an admin's verdict
+   * is the authoritative state until the store owner resolves it.
+   */
+  const getStatusConfig = (coupon: StoreCouponDto) => {
+    if (coupon.approvalStatus === "Pending") {
       return {
         label: lang(t.pending),
         className:
@@ -509,15 +519,7 @@ export const CouponsPage: React.FC = () => {
         dot: "bg-warning-500",
       };
     }
-    if (status === "approved" || coupon.isActive) {
-      return {
-        label: lang(t.active),
-        className:
-          "bg-success-50 text-success-700 border-success-200 dark:bg-success-500/10 dark:text-success-400 dark:border-success-500/20",
-        dot: "bg-success-500",
-      };
-    }
-    if (status === "rejected") {
+    if (coupon.approvalStatus === "Rejected") {
       return {
         label: lang(t.rejected),
         className:
@@ -525,12 +527,35 @@ export const CouponsPage: React.FC = () => {
         dot: "bg-error-500",
       };
     }
-    return {
-      label: lang(t.inactive),
-      className:
-        "bg-surface-100 text-surface-500 border-surface-200 dark:bg-surface-800 dark:text-surface-400 dark:border-surface-700",
-      dot: "bg-surface-400",
-    };
+    if (coupon.approvalStatus === "Approved") {
+      return coupon.isActive
+        ? {
+            label: lang(t.active),
+            className:
+              "bg-success-50 text-success-700 border-success-200 dark:bg-success-500/10 dark:text-success-400 dark:border-success-500/20",
+            dot: "bg-success-500",
+          }
+        : {
+            label: lang(t.inactive),
+            className:
+              "bg-surface-100 text-surface-500 border-surface-200 dark:bg-surface-800 dark:text-surface-400 dark:border-surface-700",
+            dot: "bg-surface-400",
+          };
+    }
+    // Fallback for legacy rows
+    return coupon.isActive
+      ? {
+          label: lang(t.active),
+          className:
+            "bg-success-50 text-success-700 border-success-200 dark:bg-success-500/10 dark:text-success-400 dark:border-success-500/20",
+          dot: "bg-success-500",
+        }
+      : {
+          label: lang(t.inactive),
+          className:
+            "bg-surface-100 text-surface-500 border-surface-200 dark:bg-surface-800 dark:text-surface-400 dark:border-surface-700",
+          dot: "bg-surface-400",
+        };
   };
 
   return (
@@ -647,11 +672,13 @@ export const CouponsPage: React.FC = () => {
                 ((coupon.currentUsageCount || 0) / coupon.maxUsageCount) * 100,
               ),
             );
-            const isProcessing = deletingId === coupon.id;
+            const isDeleting = deletingId === coupon.id;
+            const isToggling = togglingId === coupon.id;
             const isPct = coupon.type === "Percentage";
             const typeLabel = isPct ? lang(t.percentage) : lang(t.fixed);
             const statusConfig = getStatusConfig(coupon);
             const editable = isEditable(coupon);
+            const isApproved = coupon.approvalStatus === "Approved";
 
             return (
               <div
@@ -729,28 +756,90 @@ export const CouponsPage: React.FC = () => {
                   <span>{formatDate(coupon.validTo, isAr)}</span>
                 </div>
                 <div className="flex items-center gap-2 mt-auto pt-4 border-t border-surface-100 dark:border-surface-800">
-                  <button
-                    onClick={() => handleEditClick(coupon)}
-                    disabled={isProcessing || !editable}
-                    className={cn(
-                      "flex-1 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200 active:scale-[0.98]",
-                      editable
-                        ? "bg-surface-100 text-surface-700 hover:bg-surface-200 dark:bg-surface-800 dark:text-surface-300 dark:hover:bg-surface-700"
-                        : "bg-surface-50 text-surface-300 dark:bg-surface-800/50 dark:text-surface-600 cursor-not-allowed",
-                      "disabled:opacity-100",
-                    )}
-                    title={
-                      !editable ? lang(t.cannotEditApproved) : lang(t.edit)
-                    }
-                  >
-                    {lang(t.edit)}
-                  </button>
+                  {/* Approved coupons → Toggle button. Pending → Edit button. */}
+                  {isApproved ? (
+                    <button
+                      onClick={() => handleToggle(coupon.id)}
+                      disabled={isToggling}
+                      className={cn(
+                        "flex-1 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200 active:scale-[0.98]",
+                        coupon.isActive
+                          ? "bg-warning-50 text-warning-700 hover:bg-warning-100 dark:bg-warning-500/10 dark:text-warning-400 dark:hover:bg-warning-500/20"
+                          : "bg-success-50 text-success-700 hover:bg-success-100 dark:bg-success-500/10 dark:text-success-400 dark:hover:bg-success-500/20",
+                        "disabled:opacity-50 flex items-center justify-center gap-1.5",
+                      )}
+                    >
+                      {isToggling ? (
+                        <svg
+                          className="w-3.5 h-3.5 animate-spin shrink-0"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          className="w-3.5 h-3.5 shrink-0"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth={2}
+                          stroke="currentColor"
+                        >
+                          {coupon.isActive ? (
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M15.75 5.25v13.5m-7.5-13.5v13.5"
+                            />
+                          ) : (
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 0 1 0 1.971l-11.54 6.347a1.125 1.125 0 0 1-1.667-.985V5.653Z"
+                            />
+                          )}
+                        </svg>
+                      )}
+                      <span>
+                        {coupon.isActive ? lang(t.deactivate) : lang(t.activate)}
+                      </span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleEditClick(coupon)}
+                      disabled={isDeleting || isToggling || !editable}
+                      className={cn(
+                        "flex-1 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200 active:scale-[0.98]",
+                        editable
+                          ? "bg-surface-100 text-surface-700 hover:bg-surface-200 dark:bg-surface-800 dark:text-surface-300 dark:hover:bg-surface-700"
+                          : "bg-surface-50 text-surface-300 dark:bg-surface-800/50 dark:text-surface-600 cursor-not-allowed",
+                        "disabled:opacity-100",
+                      )}
+                      title={
+                        !editable ? lang(t.cannotEditApproved) : lang(t.edit)
+                      }
+                    >
+                      {lang(t.edit)}
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDelete(coupon.id)}
-                    disabled={isProcessing}
+                    disabled={isDeleting || isToggling}
                     className="flex-1 px-3 py-2 rounded-xl text-xs font-semibold text-error-600 hover:bg-error-50 dark:text-error-400 dark:hover:bg-error-500/10 active:scale-[0.98] disabled:opacity-50 transition-all flex items-center justify-center gap-1.5"
                   >
-                    {isProcessing ? (
+                    {isDeleting ? (
                       <svg
                         className="w-3.5 h-3.5 animate-spin shrink-0"
                         fill="none"

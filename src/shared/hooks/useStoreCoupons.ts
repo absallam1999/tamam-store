@@ -1,149 +1,109 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { CouponDto, CreateCouponDto, UpdateCouponDto } from "../types";
-import { storeApi } from "../../config/storeApi";
+import { storeApi } from "@/config/store.api";
+import type {
+  StoreCouponDto,
+  CreateCouponDto,
+  UpdateCouponDto,
+} from "@shared/types";
 
+// ═════════════════════════════════════════════════════════════════════
+// Query keys
+// ═════════════════════════════════════════════════════════════════════
 export const COUPONS_KEY = "storeCoupons";
 
-function unwrap<T>(response: unknown): T {
-  if (response && typeof response === "object") {
-    // Check if response has a 'data' property (axios response)
-    const resp = response as Record<string, unknown>;
-    if ("data" in resp) {
-      return resp.data as T;
-    }
-  }
-  return response as T;
+export const couponKeys = {
+  all: [COUPONS_KEY] as const,
+  list: () => [COUPONS_KEY, "list"] as const,
+  detail: (id: string) => [COUPONS_KEY, "detail", id] as const,
+};
+
+// ═════════════════════════════════════════════════════════════════════
+// Queries
+// ═════════════════════════════════════════════════════════════════════
+
+export function useCoupons() {
+  return useQuery<StoreCouponDto[]>({
+    queryKey: couponKeys.list(),
+    queryFn: () => storeApi.coupons.list(),
+    staleTime: 60_000,
+  });
 }
 
-// Helper to check if API response indicates an error
-function checkApiError(response: any): never | void {
-  // Handle axios response wrapper - check response.data for API errors
-  const apiResponse = response?.data || response;
-  
-  // Check both PascalCase and camelCase
-  const isSuccess = apiResponse?.Success ?? apiResponse?.success;
-  
-  if (isSuccess === false) {
-    // Extract the best error message
-    const message = apiResponse?.Message || 
-                   apiResponse?.message || 
-                   (apiResponse?.Errors && apiResponse.Errors[0]) ||
-                   (apiResponse?.errors && apiResponse.errors[0]) ||
-                   "An error occurred";
-    
-    throw new Error(message);
-  }
+export function useCoupon(couponId: string | undefined) {
+  return useQuery<StoreCouponDto>({
+    queryKey: couponKeys.detail(couponId ?? ""),
+    queryFn: () => storeApi.coupons.get(couponId!),
+    enabled: Boolean(couponId),
+    staleTime: 60_000,
+  });
 }
 
-export const useCoupons = () => {
-  return useQuery<CouponDto[]>({
-    queryKey: [COUPONS_KEY],
-    queryFn: async () => {
-      const response = await storeApi.getCoupons();
-      const data = unwrap<any>(response);
-      
-      // Handle different response structures
-      if (data?.items) return data.items as CouponDto[];
-      if (Array.isArray(data)) return data as CouponDto[];
-      if (data?.data?.items) return data.data.items as CouponDto[];
-      if (Array.isArray(data?.data)) return data.data as CouponDto[];
-      
-      return [];
-    },
-    staleTime: 0,
-    refetchOnMount: true,
-    refetchOnWindowFocus: true,
-  });
-};
+// ═════════════════════════════════════════════════════════════════════
+// Mutations
+// ═════════════════════════════════════════════════════════════════════
 
-export const useCoupon = (couponId: string) => {
-  return useQuery<CouponDto>({
-    queryKey: [COUPONS_KEY, couponId],
-    queryFn: async () => {
-      const response = await storeApi.getCoupon(couponId);
-      return unwrap<CouponDto>(response);
-    },
-    enabled: !!couponId,
-  });
-};
+export function useCreateCoupon() {
+  const queryClient = useQueryClient();
 
-export const useCreateCoupon = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (dto: CreateCouponDto) => {
-      const response = await storeApi.createCoupon(dto);
-      
-      // Check the response for API errors (checks both response and response.data)
-      checkApiError(response);
-      
-      return unwrap<CouponDto>(response);
-    },
+  return useMutation<StoreCouponDto, Error, CreateCouponDto>({
+    mutationFn: (dto) => storeApi.coupons.create(dto),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [COUPONS_KEY] });
-    },
-    onError: (error: Error) => {
-      console.error("Create coupon failed:", error.message);
+      queryClient.invalidateQueries({ queryKey: couponKeys.all });
     },
   });
-};
+}
 
-export const useUpdateCoupon = (couponId: string) => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (dto: UpdateCouponDto) => {
-      const response = await storeApi.updateCoupon(couponId, dto);
-      
-      // Check the response for API errors
-      checkApiError(response);
-      
-      return unwrap<CouponDto>(response);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [COUPONS_KEY] });
-      qc.invalidateQueries({ queryKey: [COUPONS_KEY, couponId] });
-    },
-    onError: (error: Error) => {
-      console.error("Update coupon failed:", error.message);
-    },
-  });
-};
+/**
+ * Update
+ */
+export function useUpdateCoupon() {
+  const queryClient = useQueryClient();
 
-export const useDeleteCoupon = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (couponId: string) => {
-      const response = await storeApi.deleteCoupon(couponId);
-      
-      // Check the response for API errors
-      checkApiError(response);
-      
-      return unwrap<void>(response);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [COUPONS_KEY] });
-    },
-    onError: (error: Error) => {
-      console.error("Delete coupon failed:", error.message);
+  return useMutation<
+    StoreCouponDto,
+    Error,
+    { couponId: string; dto: UpdateCouponDto }
+  >({
+    mutationFn: ({ couponId, dto }) => storeApi.coupons.update(couponId, dto),
+    onSuccess: (updated, variables) => {
+      queryClient.setQueryData(
+        couponKeys.detail(variables.couponId),
+        updated,
+      );
+      queryClient.invalidateQueries({ queryKey: couponKeys.list() });
     },
   });
-};
+}
 
-export const useToggleCouponActive = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (couponId: string) => {
-      const response = await storeApi.toggleCouponActive(couponId);
-      
-      // Check the response for API errors
-      checkApiError(response);
-      
-      return unwrap<void>(response);
+export function useDeleteCoupon() {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, Error, string>({
+    mutationFn: async (couponId) => {
+      await storeApi.coupons.remove(couponId);
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [COUPONS_KEY] });
-    },
-    onError: (error: Error) => {
-      console.error("Toggle coupon failed:", error.message);
+    onSuccess: (_data, couponId) => {
+      queryClient.removeQueries({ queryKey: couponKeys.detail(couponId) });
+      queryClient.invalidateQueries({ queryKey: couponKeys.list() });
     },
   });
-};
+}
+
+/**
+ * Toggle availability
+ */
+export function useToggleCoupon() {
+  const queryClient = useQueryClient();
+
+  return useMutation<StoreCouponDto, Error, string>({
+    mutationFn: (couponId) => storeApi.coupons.toggle(couponId),
+    onSuccess: (updated, couponId) => {
+      queryClient.setQueryData(couponKeys.detail(couponId), updated);
+      queryClient.setQueryData<StoreCouponDto[]>(
+        couponKeys.list(),
+        (prev) =>
+          prev?.map((c) => (c.id === couponId ? updated : c)) ?? [],
+      );
+    },
+  });
+}

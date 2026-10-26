@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useLanguage } from "@/shared/hooks/useLanguage";
 import { useToast } from "@shared/components/Toaster";
 import {
@@ -11,6 +11,9 @@ import {
   useUpdateStoreProfile,
   useUpdateLogo,
   useUpdateCover,
+  useStoreOpeningHours,
+  useSaveStoreOpeningHour,
+  DAY_KEYS,
 } from "@shared/hooks/useStoreProfile";
 import {
   useAvailableStoreTypes,
@@ -40,7 +43,6 @@ interface StoreProfileForm {
   minimumOrderAmount: number;
   deliveryFee: number;
   estimatedPreparationMinutes: number;
-  cancelBeforeMinutes: number;
 }
 
 interface WorkingHourForm {
@@ -103,7 +105,6 @@ const t = {
     ar: "وقت التحضير (دقيقة)",
     en: "Preparation Time (min)",
   },
-  cancelBeforeMinutes: { ar: "الإلغاء قبل (دقيقة)", en: "Cancel Before (min)" },
   closed: { ar: "مغلق", en: "Closed" },
   to: { ar: "إلى", en: "to" },
   openingTime: { ar: "وقت الفتح", en: "Opening Time" },
@@ -185,17 +186,7 @@ const t = {
 // Default Working Hours
 // ============================================
 
-const dayKeys = [
-  "sunday",
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-];
-
-const defaultWorkingHours: WorkingHourForm[] = dayKeys.map((day) => ({
+const defaultWorkingHours: WorkingHourForm[] = DAY_KEYS.map((day) => ({
   dayOfWeek: day,
   dayAr: t.days[day as keyof typeof t.days]?.ar || day,
   dayEn: t.days[day as keyof typeof t.days]?.en || day,
@@ -246,7 +237,6 @@ const StoreTypesSection: React.FC<{
 }> = ({ store, isAr, lang, onTypesChanged }) => {
   const toast = useToast();
 
-  // Available types for the store (no category needed)
   const { data: availableTypes = [], isLoading: typesLoading } =
     useAvailableStoreTypes();
 
@@ -257,7 +247,6 @@ const StoreTypesSection: React.FC<{
   const [isAdding, setIsAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  // Use profile data directly — it already contains approved/pending types
   const approvedTypes = (store as any)?.approvedTypes || [];
   const pendingTypes = (store as any)?.pendingTypes || [];
 
@@ -536,23 +525,17 @@ const getFixedImageUrl = (
   const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
   let cleanUrl = url;
 
-  // Remove /uploads/ from anywhere in the URL
   cleanUrl = cleanUrl.replace(/\/uploads\//g, "/");
-
-  // Fix /Store/ to /stores/
   cleanUrl = cleanUrl.replace(/\/Store\//g, "/stores/");
 
-  // If it's already a full URL, return it after cleaning
   if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) {
     return cleanUrl;
   }
 
-  // If it starts with /, prepend base URL
   if (cleanUrl.startsWith("/")) {
     return `${baseUrl}${cleanUrl}`;
   }
 
-  // If it's just a filename, construct the full URL
   const fileName = cleanUrl.split("/").pop() || cleanUrl;
   return `${baseUrl}/stores/${storeId}/${type}/${fileName}`;
 };
@@ -577,6 +560,11 @@ export const SettingsPage: React.FC = () => {
 
   const uploadLogo = useUpdateLogo();
   const uploadCover = useUpdateCover();
+
+  // Opening hours — served from React Query; no raw fetch in the component
+  const { data: serverHours = [], isLoading: hoursLoading } =
+    useStoreOpeningHours();
+  const saveHour = useSaveStoreOpeningHour();
 
   const isAr = currentLanguage === "ar";
   const lang = (obj: { ar: string; en: string }) => (isAr ? obj.ar : obj.en);
@@ -608,15 +596,85 @@ export const SettingsPage: React.FC = () => {
     minimumOrderAmount: 0,
     deliveryFee: 0,
     estimatedPreparationMinutes: 15,
-    cancelBeforeMinutes: 30,
   });
 
-  const [workingHours, setWorkingHours] =
-    useState<WorkingHourForm[]>(defaultWorkingHours);
+  // ═══════════════════════════════════════════════════════════════════
+  // Opening hours — optimistic overlay
+  // ═══════════════════════════════════════════════════════════════════
+  // The server is the source of truth; this map only holds in-flight
+  // edits so the UI reflects changes instantly. Entries are cleared on
+  // mutation success/failure — cache updates from the hook take over.
+  const [pendingHourEdits, setPendingHourEdits] = useState<
+    Record<string, Partial<WorkingHourForm>>
+  >({});
+
+  const workingHours: WorkingHourForm[] = useMemo(() => {
+    return DAY_KEYS.map((day) => {
+      const defaults = defaultWorkingHours.find((h) => h.dayOfWeek === day)!;
+      const server = serverHours.find(
+        (h) => h.dayOfWeek.toLowerCase() === day,
+      );
+      const base: WorkingHourForm = server
+        ? {
+            ...defaults,
+            id: server.id,
+            // "HH:mm:ss" → "HH:mm" (input[type=time] wants the short form)
+            openingTime: server.openingTime.slice(0, 5),
+            closingTime: server.closingTime.slice(0, 5),
+            isActive: server.isActive,
+          }
+        : { ...defaults, isActive: false };
+      const overlay = pendingHourEdits[day];
+      return overlay ? { ...base, ...overlay } : base;
+    });
+  }, [serverHours, pendingHourEdits]);
+
+  const handleHourChange = (day: string, patch: Partial<WorkingHourForm>) => {
+    setPendingHourEdits((prev) => ({
+      ...prev,
+      [day]: { ...(prev[day] ?? {}), ...patch },
+    }));
+
+    const current = workingHours.find((h) => h.dayOfWeek === day)!;
+    const merged = { ...current, ...patch };
+
+    saveHour.mutate(
+      {
+        id: merged.id,
+        dayOfWeek: merged.dayOfWeek,
+        openingTime: merged.openingTime,
+        closingTime: merged.closingTime,
+        isActive: merged.isActive,
+      },
+      {
+        onSuccess: () => {
+          setPendingHourEdits((prev) => {
+            const next = { ...prev };
+            delete next[day];
+            return next;
+          });
+        },
+        onError: () => {
+          // Drop the optimistic patch — derived values revert to server state.
+          setPendingHourEdits((prev) => {
+            const next = { ...prev };
+            delete next[day];
+            return next;
+          });
+          toast.error(lang(t.saveError));
+        },
+      },
+    );
+  };
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Profile save
+  // ═══════════════════════════════════════════════════════════════════
 
   const handleSaveProfile = useCallback(async () => {
     setIsSaving(true);
     try {
+      // `UpdateStoreProfileDto` matches the current API schema exactly.
       const dto: UpdateStoreProfileDto = {
         nameAr: profile.nameAr,
         nameEn: profile.nameEn,
@@ -632,7 +690,6 @@ export const SettingsPage: React.FC = () => {
         minimumOrderAmount: profile.minimumOrderAmount,
         deliveryFee: profile.deliveryFee,
         estimatedPreparationMinutes: profile.estimatedPreparationMinutes,
-        cancelBeforeMinutes: profile.cancelBeforeMinutes,
       };
       await updateProfile.mutateAsync(dto);
       toast.success(lang(t.saveSuccess));
@@ -643,186 +700,48 @@ export const SettingsPage: React.FC = () => {
     }
   }, [profile, updateProfile, toast, isAr, lang]);
 
+  // ═══════════════════════════════════════════════════════════════════
+  // Image uploads
+  // ═══════════════════════════════════════════════════════════════════
+
   const handleImageUpload = async (file: File, type: "logo" | "cover") => {
-    // Validate file type
     const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
     if (!allowedTypes.includes(file.type)) {
       toast.error(lang(t.imageTypeError));
       return;
     }
-
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       toast.error(lang(t.imageSizeError));
       return;
     }
 
-    // Set uploading state
-    if (type === "logo") {
-      setIsUploadingLogo(true);
-    } else {
-      setIsUploadingCover(true);
-    }
+    if (type === "logo") setIsUploadingLogo(true);
+    else setIsUploadingCover(true);
 
     try {
-      let imageUrl: string | undefined;
-
+      // Hooks return StoreProfileDto — `logoUrl` / `coverImageUrl` are set.
       if (type === "logo") {
-        const result = await uploadLogo.mutateAsync(file);
-        imageUrl = result?.url || result?.data?.url || result?.imageUrl;
+        const updated = await uploadLogo.mutateAsync(file);
+        if (!updated?.logoUrl) throw new Error("No logo URL returned");
       } else {
-        const result = await uploadCover.mutateAsync(file);
-        imageUrl = result?.url || result?.data?.url || result?.imageUrl;
+        const updated = await uploadCover.mutateAsync(file);
+        if (!updated?.coverImageUrl) throw new Error("No cover URL returned");
       }
 
-      if (imageUrl) {
-        // Extract filename from the URL
-        const fileName = imageUrl.split("/").pop() || "";
-
-        // Refresh store data to show the new image
-        if (refreshStore) {
-          await refreshStore();
-        }
-
-        toast.success(lang(t.uploadSuccess));
-      } else {
-        throw new Error("No image URL returned from server");
-      }
+      if (refreshStore) await refreshStore();
+      toast.success(lang(t.uploadSuccess));
     } catch (error) {
       console.error("Upload error:", error);
       toast.error(error instanceof Error ? error.message : lang(t.uploadError));
     } finally {
-      if (type === "logo") {
-        setIsUploadingLogo(false);
-      } else {
-        setIsUploadingCover(false);
-      }
+      if (type === "logo") setIsUploadingLogo(false);
+      else setIsUploadingCover(false);
     }
   };
 
-  // Fetch the full list of opening hours from API, and merge missing days as inactive
-  const fetchWorkingHours = useCallback(async () => {
-    if (!store?.id) return;
-
-    try {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-      const token = localStorage.getItem("store-access-token");
-
-      const response = await fetch(`${baseUrl}/api/store/opening-hours`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) throw new Error("Failed to fetch working hours");
-
-      const result = await response.json();
-      const hoursData: any[] = result.data || result || [];
-
-      // Start with all 7 days inactive (using defaults for times)
-      const merged = dayKeys.map((day) => ({
-        dayOfWeek: day,
-        dayAr: t.days[day as keyof typeof t.days]?.ar || day,
-        dayEn: t.days[day as keyof typeof t.days]?.en || day,
-        openingTime: day === "friday" ? "14:00" : "08:00",
-        closingTime: "23:00",
-        isActive: false, // inactive by default
-        id: undefined, // no id yet
-      }));
-
-      // Override with actual API data for days that exist
-      for (const wh of hoursData) {
-        const dayLower = wh.dayOfWeek.toLowerCase();
-        const index = merged.findIndex((d) => d.dayOfWeek === dayLower);
-        if (index !== -1) {
-          merged[index] = {
-            ...merged[index],
-            id: wh.id,
-            openingTime: wh.openingTime,
-            closingTime: wh.closingTime,
-            isActive: wh.isActive,
-          };
-        }
-      }
-
-      setWorkingHours(merged);
-    } catch (error) {
-      console.error("Failed to fetch working hours:", error);
-      // Keep current state (or fallback to defaults) – no update on error
-    }
-  }, [store?.id]);
-
-  // Save individual working hour to API
-  const saveWorkingHour = useCallback(
-    async (hour: WorkingHourForm) => {
-      try {
-        const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-        const token = localStorage.getItem("store-access-token");
-
-        if (!token) throw new Error("No auth token found");
-
-        const capitalizedDay =
-          hour.dayOfWeek.charAt(0).toUpperCase() +
-          hour.dayOfWeek.slice(1).toLowerCase();
-
-        const method = hour.id ? "PUT" : "POST";
-        const endpoint = hour.id
-          ? `${baseUrl}/api/store/opening-hours/${hour.id}`
-          : `${baseUrl}/api/store/opening-hours`;
-
-        const response = await fetch(endpoint, {
-          method,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            dayOfWeek: capitalizedDay,
-            openingTime: hour.openingTime,
-            closingTime: hour.closingTime,
-            isActive: hour.isActive,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(
-            errorText ||
-              `Failed to update working hour: ${response.statusText}`,
-          );
-        }
-
-        // Parse the response to get the new ID (for POST)
-        const savedData = await response.json();
-        const newHour = savedData.data || savedData;
-
-        // If the hour didn't have an ID before and now has one, update it locally
-        if (
-          !hour.id &&
-          newHour.id &&
-          newHour.id !== "00000000-0000-0000-0000-000000000000"
-        ) {
-          setWorkingHours((prev) =>
-            prev.map((h) =>
-              h.dayOfWeek === hour.dayOfWeek ? { ...h, id: newHour.id } : h,
-            ),
-          );
-        }
-
-        // Refresh the full list from the server
-        await fetchWorkingHours();
-
-        toast.success(lang(t.saveSuccess));
-      } catch (error) {
-        console.error("Failed to update working hour:", error);
-        toast.error(lang(t.saveError));
-
-        // Revert to server state on error
-        await fetchWorkingHours();
-      }
-    },
-    [toast, lang, fetchWorkingHours],
-  );
+  // ═══════════════════════════════════════════════════════════════════
+  // Hydrate profile form from the store object
+  // ═══════════════════════════════════════════════════════════════════
 
   useEffect(() => {
     if (store) {
@@ -834,20 +753,17 @@ export const SettingsPage: React.FC = () => {
         email: store.email || "",
         streetAr: store.streetAr || "",
         streetEn: store.streetEn || "",
-        cityId: store.cityId || "",
+        // `StoreProfileDto` doesn't expose `cityId` on read — start blank.
+        cityId: "",
         city: store.city || "",
         latitude: store.latitude || 0,
         longitude: store.longitude || 0,
         minimumOrderAmount: store.minimumOrderAmount || 0,
         deliveryFee: store.deliveryFee || 0,
         estimatedPreparationMinutes: store.estimatedPreparationMinutes || 15,
-        cancelBeforeMinutes: store.cancelBeforeMinutes ?? 30,
       });
-
-      // Fetch working hours from the separate endpoint
-      fetchWorkingHours();
     }
-  }, [store, fetchWorkingHours]);
+  }, [store]);
 
   const inputClasses = cn(
     "w-full px-4 py-3 rounded-xl text-sm transition-all duration-200",
@@ -1036,13 +952,11 @@ export const SettingsPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="space-y-6 animate-pulse">
-        {/* Header */}
         <div>
           <div className="skeleton h-8 w-48 rounded-lg mb-2" />
           <div className="skeleton h-4 w-64 rounded-lg" />
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-1 border-b border-surface-200 dark:border-surface-800">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="flex items-center gap-2 px-4 py-3">
@@ -1052,9 +966,7 @@ export const SettingsPage: React.FC = () => {
           ))}
         </div>
 
-        {/* Content Card */}
         <div className="bg-white dark:bg-surface-900 rounded-3xl border border-surface-200 dark:border-surface-800 p-6 sm:p-8 shadow-sm">
-          {/* Section Header */}
           <div className="flex items-center gap-3 mb-6 pb-3 border-b border-surface-100 dark:border-surface-800">
             <div className="skeleton w-10 h-10 rounded-xl" />
             <div>
@@ -1063,7 +975,6 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Form Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
               <div key={i} className="space-y-1.5">
@@ -1073,9 +984,8 @@ export const SettingsPage: React.FC = () => {
             ))}
           </div>
 
-          {/* Number Inputs Row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mt-5">
-            {[1, 2, 3, 4].map((i) => (
+            {[1, 2, 3].map((i) => (
               <div key={i} className="space-y-1.5">
                 <div className="skeleton h-3 w-24 rounded-lg" />
                 <div className="skeleton h-12 w-full rounded-xl" />
@@ -1083,7 +993,6 @@ export const SettingsPage: React.FC = () => {
             ))}
           </div>
 
-          {/* Action Buttons */}
           <div className="flex gap-3 mt-8 pt-6 border-t border-surface-100 dark:border-surface-800">
             <div className="skeleton h-12 w-36 rounded-xl" />
             <div className="skeleton h-12 w-24 rounded-xl" />
@@ -1101,7 +1010,6 @@ export const SettingsPage: React.FC = () => {
       )}
       dir={isAr ? "rtl" : "ltr"}
     >
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-surface-900 dark:text-white">
           {lang(t.title)}
@@ -1111,7 +1019,6 @@ export const SettingsPage: React.FC = () => {
         </p>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 overflow-x-auto border-b border-surface-200 dark:border-surface-800">
         {tabs.map((tab) => (
           <button
@@ -1293,7 +1200,7 @@ export const SettingsPage: React.FC = () => {
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mt-5">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-5 mt-5">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-surface-600 dark:text-surface-400">
                 {lang(t.minimumOrderAmount)}
@@ -1342,23 +1249,6 @@ export const SettingsPage: React.FC = () => {
                   })
                 }
                 min="1"
-                className={inputClasses}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-surface-600 dark:text-surface-400">
-                {lang(t.cancelBeforeMinutes)}
-              </label>
-              <input
-                type="number"
-                value={profile.cancelBeforeMinutes}
-                onChange={(e) =>
-                  setProfile({
-                    ...profile,
-                    cancelBeforeMinutes: Number(e.target.value),
-                  })
-                }
-                min="0"
                 className={inputClasses}
               />
             </div>
@@ -1430,81 +1320,73 @@ export const SettingsPage: React.FC = () => {
               </p>
             </div>
           </div>
-          <div className="space-y-2">
-            {workingHours.map((hour, index) => (
-              <div
-                key={hour.dayOfWeek}
-                className={cn(
-                  "flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4 rounded-xl",
-                  hour.isActive
-                    ? "bg-surface-50 dark:bg-surface-800/50"
-                    : "bg-surface-50/50 dark:bg-surface-900/50 opacity-60",
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <ToggleSwitch
-                    checked={hour.isActive}
-                    onChange={async (checked) => {
-                      // Update local state immediately for responsive UI
-                      const updated = { ...hour, isActive: checked };
-                      const u = [...workingHours];
-                      u[index] = updated;
-                      setWorkingHours(u);
-
-                      // Save individual working hour to API
-                      await saveWorkingHour(updated);
-                    }}
-                  />
-                  <span className="w-24 sm:w-28 text-sm font-medium text-surface-700 dark:text-surface-300">
-                    {isAr ? hour.dayAr : hour.dayEn}
-                  </span>
-                </div>
-                {hour.isActive ? (
-                  <div className="flex items-center gap-2 flex-1">
-                    <input
-                      type="time"
-                      value={hour.openingTime}
-                      onChange={async (e) => {
-                        const updated = {
-                          ...hour,
-                          openingTime: e.target.value,
-                        };
-                        const u = [...workingHours];
-                        u[index] = updated;
-                        setWorkingHours(u);
-
-                        await saveWorkingHour(updated);
-                      }}
-                      className="rounded-xl py-2 px-3 bg-surface-100 dark:bg-surface-800 text-sm text-surface-900 dark:text-white border-2 border-transparent focus:outline-none focus:border-primary-500/50"
+          {hoursLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+                <div
+                  key={i}
+                  className="skeleton h-16 w-full rounded-xl"
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {workingHours.map((hour) => (
+                <div
+                  key={hour.dayOfWeek}
+                  className={cn(
+                    "flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4 rounded-xl",
+                    hour.isActive
+                      ? "bg-surface-50 dark:bg-surface-800/50"
+                      : "bg-surface-50/50 dark:bg-surface-900/50 opacity-60",
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <ToggleSwitch
+                      checked={hour.isActive}
+                      onChange={(checked) =>
+                        handleHourChange(hour.dayOfWeek, { isActive: checked })
+                      }
                     />
-                    <span className="text-surface-400 text-sm">
-                      {lang(t.to)}
+                    <span className="w-24 sm:w-28 text-sm font-medium text-surface-700 dark:text-surface-300">
+                      {isAr ? hour.dayAr : hour.dayEn}
                     </span>
-                    <input
-                      type="time"
-                      value={hour.closingTime}
-                      onChange={async (e) => {
-                        const updated = {
-                          ...hour,
-                          closingTime: e.target.value,
-                        };
-                        const u = [...workingHours];
-                        u[index] = updated;
-                        setWorkingHours(u);
-
-                        await saveWorkingHour(updated);
-                      }}
-                      className="rounded-xl py-2 px-3 bg-surface-100 dark:bg-surface-800 text-sm text-surface-900 dark:text-white border-2 border-transparent focus:outline-none focus:border-primary-500/50"
-                    />
                   </div>
-                ) : (
-                  <span className="text-sm text-surface-400 flex-1">
-                    {lang(t.closed)}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
+                  {hour.isActive ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <input
+                        type="time"
+                        value={hour.openingTime}
+                        onChange={(e) =>
+                          handleHourChange(hour.dayOfWeek, {
+                            openingTime: e.target.value,
+                          })
+                        }
+                        className="rounded-xl py-2 px-3 bg-surface-100 dark:bg-surface-800 text-sm text-surface-900 dark:text-white border-2 border-transparent focus:outline-none focus:border-primary-500/50"
+                      />
+                      <span className="text-surface-400 text-sm">
+                        {lang(t.to)}
+                      </span>
+                      <input
+                        type="time"
+                        value={hour.closingTime}
+                        onChange={(e) =>
+                          handleHourChange(hour.dayOfWeek, {
+                            closingTime: e.target.value,
+                          })
+                        }
+                        className="rounded-xl py-2 px-3 bg-surface-100 dark:bg-surface-800 text-sm text-surface-900 dark:text-white border-2 border-transparent focus:outline-none focus:border-primary-500/50"
+                      />
+                    </div>
+                  ) : (
+                    <span className="text-sm text-surface-400 flex-1">
+                      {lang(t.closed)}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -1653,19 +1535,16 @@ export const SettingsPage: React.FC = () => {
                 {lang(t.cover)}
               </label>
               <div className="relative aspect-video rounded-2xl bg-surface-100 dark:bg-surface-800 overflow-hidden group">
-                {/* Use coverImageUrl from the store response */}
                 {store?.coverImageUrl ? (
                   <>
                     <img
                       src={(() => {
                         const url = store.coverImageUrl;
                         const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-                        // Remove /uploads/ and construct the correct URL
                         const cleanUrl = url
                           .replace(/^\/uploads\//, "/")
                           .replace(/\/uploads\//g, "/")
                           .replace(/\/Store\//g, "/stores/");
-                        // If it starts with /, prepend base URL
                         if (cleanUrl.startsWith("/")) {
                           return `${baseUrl}${cleanUrl}`;
                         }

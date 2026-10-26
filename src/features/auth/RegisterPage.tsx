@@ -802,7 +802,7 @@ export const RegisterPage: React.FC = () => {
           <span className="text-sm text-surface-600 dark:text-surface-400">
             {lang(t.acceptTerms)}{" "}
             <a
-              href="https://tamaam.cloud/terms"
+              href="https://tamamapp.net/terms"
               target="_blank"
               rel="noopener noreferrer"
               className="font-medium text-primary-600 dark:text-primary-400 hover:underline"
@@ -811,7 +811,7 @@ export const RegisterPage: React.FC = () => {
             </a>{" "}
             {lang(t.and)}{" "}
             <a
-              href="https://tamaam.cloud/privacy"
+              href="https://tamamapp.net/privacy"
               target="_blank"
               rel="noopener noreferrer"
               className="font-medium text-primary-600 dark:text-primary-400 hover:underline"

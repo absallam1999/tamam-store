@@ -12,6 +12,38 @@ import {
   useDeleteNotification,
   useDeleteAllNotifications,
 } from "@shared/hooks/useStoreNotifications";
+import type { NotificationSummaryDto } from "@shared/types";
+
+// ============================================================
+// Route resolver
+// ============================================================
+
+function getNotificationRoute(
+  n: NotificationSummaryDto,
+): string | undefined {
+  const { targetPage, targetId } = n.payload ?? {};
+  if (!targetPage) return undefined;
+
+  switch (targetPage) {
+    case "Order":
+    case "OrderDetail":
+      return targetId
+        ? `/dashboard/orders/${targetId}`
+        : "/dashboard/orders";
+    case "Chat":
+    case "ChatDetail":
+      return "/dashboard/support";
+    case "Wallet":
+      return "/dashboard/wallet";
+    case "Settings":
+    case "StoreProfile":
+      return "/dashboard/settings";
+    case "Notifications":
+      return "/dashboard/notifications";
+    default:
+      return "/dashboard/notifications";
+  }
+}
 
 // ============================================================
 // Translations
@@ -159,6 +191,27 @@ const defaultTypeIcon = {
   ),
 };
 
+/**
+ * Resolves the icon config for a notification type.
+ * Wire values are PascalCase ("OrderPlaced"); the icon map is lowercase —
+ * normalize and prefix-match so both exact keys and variants work.
+ */
+function getTypeConfig(type: string | undefined) {
+  if (!type) return defaultTypeIcon;
+
+  const lower = type.toLowerCase();
+
+  // Exact match first
+  if (typeIcons[lower]) return typeIcons[lower];
+
+  // Prefix match: "OrderPlaced" → "order", "PaymentReceived" → "payment"
+  for (const key of Object.keys(typeIcons)) {
+    if (lower.startsWith(key)) return typeIcons[key];
+  }
+
+  return defaultTypeIcon;
+}
+
 // ============================================================
 // Main Component
 // ============================================================
@@ -174,22 +227,33 @@ export const NotificationsPage: React.FC = () => {
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const { data, isLoading } = useNotifications(page, 20);
-  const notifications = data?.notifications ?? [];
-  const totalCount = data?.totalCount ?? 0;
+  // ── Data ───────────────────────────────────────────────────────
+  // useNotifications returns PagedResult<NotificationSummaryDto>
+  const { data: notificationsPage, isLoading } = useNotifications(page, 20);
+  const notifications: NotificationSummaryDto[] =
+    notificationsPage?.items ?? [];
+  const totalCount = notificationsPage?.totalCount ?? 0;
+  const totalPages = notificationsPage?.totalPages ?? 1;
+  const hasNext = notificationsPage?.hasNext ?? false;
+  const hasPrevious = notificationsPage?.hasPrevious ?? false;
+
+  // useUnreadCount returns UnreadCountDto { total, byType }
   const { data: unreadData } = useUnreadCount();
+  const unreadCount = unreadData?.total ?? 0;
+
+  // ── Mutations ──────────────────────────────────────────────────
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
   const deleteNotification = useDeleteNotification();
   const deleteAllNotifications = useDeleteAllNotifications();
 
-  const unreadCount = unreadData ?? 0;
-
+  // ── Derived ────────────────────────────────────────────────────
   const filteredNotifications =
     filter === "unread"
       ? notifications.filter((n) => !n.isRead)
       : notifications;
 
+  // ── Handlers ───────────────────────────────────────────────────
   const handleMarkAllRead = async () => {
     try {
       await markAllAsRead.mutateAsync();
@@ -202,7 +266,9 @@ export const NotificationsPage: React.FC = () => {
   const handleMarkRead = async (id: string) => {
     try {
       await markAsRead.mutateAsync(id);
-    } catch {}
+    } catch {
+      // Silently ignore — visual feedback is enough
+    }
   };
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
@@ -223,14 +289,18 @@ export const NotificationsPage: React.FC = () => {
     try {
       await deleteAllNotifications.mutateAsync();
       toast.success(lang(t.deleteAllSuccess));
-    } catch {
-      toast.error(lang(t.error));
+    } catch (err) {
+      // Backend bulk-delete endpoint doesn't exist yet — the hook throws
+      // with a descriptive message; surface it directly.
+      const message = err instanceof Error ? err.message : lang(t.error);
+      toast.error(message);
     }
   };
 
-  const handleNotificationClick = (notification: any) => {
+  const handleNotificationClick = (notification: NotificationSummaryDto) => {
     if (!notification.isRead) handleMarkRead(notification.id);
-    if (notification.link) navigate(notification.link);
+    const target = getNotificationRoute(notification);
+    if (target) navigate(target);
   };
 
   return (
@@ -424,7 +494,7 @@ export const NotificationsPage: React.FC = () => {
       ) : (
         <div className="space-y-2">
           {filteredNotifications.map((n) => {
-            const typeCfg = typeIcons[n.type] ?? defaultTypeIcon;
+            const typeCfg = getTypeConfig(n.type);
             return (
               <div
                 key={n.id}
@@ -448,17 +518,17 @@ export const NotificationsPage: React.FC = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-[10px] font-medium text-surface-400 dark:text-surface-500 uppercase tracking-wider">
-                        {n.type}
+                        {n.type ?? "General"}
                       </span>
                       {!n.isRead && (
                         <span className="w-2 h-2 rounded-full bg-primary-500 flex-shrink-0" />
                       )}
                     </div>
                     <h4 className="text-sm font-semibold text-surface-900 dark:text-white mb-1">
-                      {n.title}
+                      {n.title ?? "—"}
                     </h4>
                     <p className="text-xs text-surface-500 dark:text-surface-400 line-clamp-2 leading-relaxed">
-                      {n.body}
+                      {n.body ?? ""}
                     </p>
                     <p className="text-[11px] text-surface-400 dark:text-surface-500 mt-2">
                       {getRelativeTime(n.createdAt)}
@@ -513,23 +583,23 @@ export const NotificationsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalCount > 20 && (
+      {/* Pagination — uses server-provided hasNext / hasPrevious / totalPages */}
+      {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 pt-2">
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="btn btn-ghost btn-sm"
+            disabled={!hasPrevious}
+            className="btn btn-ghost btn-sm disabled:opacity-40"
           >
             {lang(t.previous)}
           </button>
           <span className="text-sm text-surface-500 dark:text-surface-400">
-            {page} / {Math.ceil(totalCount / 20)}
+            {page} / {totalPages}
           </span>
           <button
             onClick={() => setPage((p) => p + 1)}
-            disabled={page * 20 >= totalCount}
-            className="btn btn-ghost btn-sm"
+            disabled={!hasNext}
+            className="btn btn-ghost btn-sm disabled:opacity-40"
           >
             {lang(t.next)}
           </button>

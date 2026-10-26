@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useLanguage } from "@/shared/hooks/useLanguage";
 import { useToast } from "@shared/components/Toaster";
 import { cn } from "@shared/utils/cn";
@@ -9,13 +9,15 @@ import {
 } from "@shared/utils/formatters";
 import {
   useWallet,
-  useWalletRequests,
-  useWithdrawFromWallet,
+  useWithdrawals,
+  useRequestWithdrawal,
+  useWalletTransactions,
+  useCancelWithdrawal,
   usePaymentNumbers,
-  type WalletRequestDto,
+  useSubmitTopUp,
 } from "@shared/hooks/useStoreWallet";
 import { useStoreProfile } from "@/shared/hooks/useStoreProfile";
-import { apiClient } from "@/lib/api-client";
+import type { WalletTransactionDto, WithdrawalDto } from "@shared/types";
 
 // ============================================
 // Translations
@@ -29,6 +31,8 @@ const t = {
   },
   availableBalance: { ar: "الرصيد المتاح", en: "Available Balance" },
   totalEarnings: { ar: "إجمالي الأرباح", en: "Total Earnings" },
+  totalIn: { ar: "إجمالي الإيداعات", en: "Total Received" },
+  totalOut: { ar: "إجمالي المسحوبات", en: "Total Withdrawn" },
   currency: { ar: "جنيه مصري", en: "EGP" },
   storeAccount: { ar: "حساب المتجر", en: "Store Account" },
   withdraw: { ar: "سحب", en: "Withdraw" },
@@ -42,13 +46,11 @@ const t = {
   amount: { ar: "المبلغ", en: "Amount" },
   amountPlaceholder: { ar: "أدخل المبلغ", en: "Enter amount" },
   available: { ar: "المتاح", en: "Available" },
+  minimum: { ar: "الحد الأدنى", en: "Minimum" },
   cancel: { ar: "إلغاء", en: "Cancel" },
   confirmWithdraw: { ar: "تأكيد السحب", en: "Confirm Withdrawal" },
-  confirmDeposit: { ar: "تأكيد الإيداع", en: "Confirm Deposit" },
   processing: { ar: "جاري المعالجة...", en: "Processing..." },
   refresh: { ar: "تحديث", en: "Refresh" },
-  hideBalance: { ar: "إخفاء الرصيد", en: "Hide Balance" },
-  showBalance: { ar: "إظهار الرصيد", en: "Show Balance" },
   loadError: {
     ar: "فشل تحميل بيانات المحفظة",
     en: "Failed to load wallet data",
@@ -58,12 +60,7 @@ const t = {
     ar: "تم تقديم طلب السحب بنجاح",
     en: "Withdrawal request submitted",
   },
-  depositSuccess: {
-    ar: "تم تقديم طلب الإيداع بنجاح",
-    en: "Deposit request submitted",
-  },
   withdrawError: { ar: "فشل طلب السحب", en: "Withdrawal request failed" },
-  depositError: { ar: "فشل طلب الإيداع", en: "Deposit request failed" },
   insufficientBalance: {
     ar: "المبلغ يتجاوز الرصيد المتاح",
     en: "Amount exceeds available balance",
@@ -72,58 +69,58 @@ const t = {
     ar: "المبلغ يجب أن يكون أكبر من صفر",
     en: "Amount must be greater than zero",
   },
+  belowMinimum: {
+    ar: "المبلغ أقل من الحد الأدنى للسحب",
+    en: "Amount is below the minimum withdrawal",
+  },
   credit: { ar: "إيداع", en: "Credit" },
   debit: { ar: "خصم", en: "Debit" },
   withdrawal: { ar: "سحب", en: "Withdrawal" },
   orderPayment: { ar: "دفع طلب", en: "Order Payment" },
-  depositType: { ar: "إيداع", en: "Deposit" },
   transaction: { ar: "معاملة", en: "Transaction" },
   totalTransactions: { ar: "إجمالي المعاملات", en: "Total Transactions" },
-  error: { ar: "حدث خطأ", en: "An error occurred" },
   pendingWithdrawals: { ar: "طلبات سحب معلقة", en: "Pending Withdrawals" },
-  phoneFrom: { ar: "رقم الهاتف المحول منة", en: "Sender Phone Number" },
-  phoneFromPlaceholder: {
-    ar: "مثال: 01012345678",
-    en: "e.g. 01012345678",
+  cancelRequest: { ar: "إلغاء الطلب", en: "Cancel" },
+  cancelConfirm: {
+    ar: "هل تريد إلغاء طلب السحب؟",
+    en: "Cancel this withdrawal request?",
   },
-  instapayAccountPlaceholder: {
-    ar: "مثال: user@instapay",
-    en: "e.g. user@instapay",
+  cancelSuccess: { ar: "تم إلغاء الطلب", en: "Request cancelled" },
+  cancelError: { ar: "فشل إلغاء الطلب", en: "Failed to cancel request" },
+  cannotWithdraw: {
+    ar: "لا يمكن السحب حالياً",
+    en: "Cannot withdraw right now",
   },
-  paymentMethod: { ar: "طريقة الدفع", en: "Payment Method" },
-  paymentMethodPlaceholder: {
-    ar: "اختر طريقة الدفع",
-    en: "Select payment method",
+  depositSubtitle: {
+    ar: "أضف رصيد إلى محفظتك",
+    en: "Add money to your wallet",
   },
-  mobileWallet: { ar: "محفظة جوال", en: "Mobile Wallet" },
-  instapay: { ar: "InstaPay", en: "InstaPay" },
-  screenshot: { ar: "لقطة شاشة للتحويل", en: "Transfer Screenshot" },
-  uploadScreenshot: { ar: "رفع لقطة الشاشة", en: "Upload Screenshot" },
-  changeScreenshot: { ar: "تغيير الصورة", en: "Change Image" },
-  screenshotRequired: {
-    ar: "لقطة الشاشة مطلوبة",
-    en: "Screenshot is required",
+  selectPaymentMethod: { ar: "طريقة الدفع", en: "Payment method" },
+  noPaymentNumbers: {
+    ar: "لا توجد طرق دفع متاحة حالياً",
+    en: "No payment methods available",
   },
-  selectPaymentMethod: {
-    ar: "يرجى اختيار طريقة الدفع",
-    en: "Please select a payment method",
+  phoneFrom: { ar: "رقم هاتفك (المرسل)", en: "Your phone (sender)" },
+  phoneFromPlaceholder: { ar: "مثال: 01012345678", en: "e.g. 01012345678" },
+  phoneFromRequired: {
+    ar: "يرجى إدخال رقم هاتفك",
+    en: "Please enter your phone number",
   },
-  enterSenderInfo: {
-    ar: "أدخل معلومات المرسل",
-    en: "Enter sender information",
+  phoneFromInvalid: {
+    ar: "رقم الهاتف غير صحيح",
+    en: "Invalid phone number",
   },
-  invalidPhone: {
-    ar: "يرجى إدخال رقم هاتف مصري صحيح (11 رقم يبدأ بـ 010, 011, 012, 015)",
-    en: "Please enter a valid Egyptian phone number (11 digits starting with 010, 011, 012, 015)",
+  notes: { ar: "ملاحظات (اختياري)", en: "Notes (optional)" },
+  notesPlaceholder: { ar: "أي تفاصيل إضافية", en: "Any extra details" },
+  confirmDeposit: { ar: "تأكيد الإيداع", en: "Confirm Deposit" },
+  depositSuccess: {
+    ar: "تم تقديم طلب الإيداع بنجاح",
+    en: "Top-up request submitted",
   },
-  invalidInstapay: {
-    ar: "يرجى إدخال حساب InstaPay صحيح (مثال: user@instapay)",
-    en: "Please enter a valid Instapay account (e.g. user@instapay)",
-  },
-  requiredPhone: {
-    ar: "يرجى إدخال رقم الهاتف",
-    en: "Please enter a phone number",
-  },
+  depositError: { ar: "فشل طلب الإيداع", en: "Failed to submit top-up" },
+  copy: { ar: "نسخ", en: "Copy" },
+  copied: { ar: "تم النسخ", en: "Copied" },
+  error: { ar: "حدث خطأ", en: "An error occurred" },
 } as const;
 
 // ============================================
@@ -131,10 +128,10 @@ const t = {
 // ============================================
 
 const getTransactionLabel = (
-  type: string,
+  type: string | undefined,
   lang: (obj: { ar: string; en: string }) => string,
 ): string => {
-  const lower = type?.toLowerCase() || "";
+  const lower = (type ?? "").toLowerCase();
   if (lower.includes("credit") || lower.includes("deposit"))
     return lang(t.credit);
   if (lower.includes("withdraw")) return lang(t.withdrawal);
@@ -143,134 +140,105 @@ const getTransactionLabel = (
   return lang(t.debit);
 };
 
-const isCreditTransaction = (type: string): boolean => {
-  const lower = type?.toLowerCase() || "";
-  return (
-    lower.includes("credit") ||
-    lower.includes("deposit") ||
-    lower.includes("order")
-  );
+const isCreditTransaction = (tx: WalletTransactionDto): boolean => {
+  if (typeof tx.amount === "number" && tx.amount !== 0) return tx.amount > 0;
+  const lower = (tx.type ?? "").toLowerCase();
+  return !lower.match(/debit|withdraw|payment|out|charge/);
 };
 
-// Egyptian phone number validation
-const isValidEgyptianPhone = (phone: string): boolean => {
-  // Remove any non-digit characters
-  const clean = phone.replace(/\D/g, "");
-  // Check if it's exactly 11 digits and starts with 010, 011, 012, or 015
-  return /^(010|011|012|015)\d{8}$/.test(clean);
-};
-
-// Instapay account validation
-const isValidInstapay = (account: string): boolean => {
-  // Should contain @ and at least 3 characters before and after
-  const trimmed = account.trim();
-  if (!trimmed.includes("@")) return false;
-  const parts = trimmed.split("@");
-  return parts.length === 2 && parts[0].length >= 3 && parts[1].length >= 3;
-};
+// Egyptian mobile: 11 digits starting with 01
+const isValidPhone = (phone: string): boolean => /^01\d{9}$/.test(phone);
 
 // ============================================
 // WalletPage — Main Component
 // ============================================
 
 export const WalletPage: React.FC = () => {
-  // ============================================
-  // ALL HOOKS - MUST BE CALLED UNCONDITIONALLY
-  // ============================================
   const { currentLanguage } = useLanguage();
   const toast = useToast();
   const isAr = currentLanguage === "ar";
   const lang = (obj: { ar: string; en: string }) => (isAr ? obj.ar : obj.en);
 
-  // Data fetching hooks
+  // ── Data ────────────────────────────────────────────────────
   const { data: wallet, isLoading, isError, error, refetch } = useWallet();
-  const { data: paymentNumbers = [] } = usePaymentNumbers();
-  const { data: walletRequests = [] } = useWalletRequests();
-  const withdrawMutation = useWithdrawFromWallet();
+  const { data: transactionsPage, isLoading: txsLoading } =
+    useWalletTransactions({ pageSize: 100 });
+  const { data: paymentNumbers = [], isLoading: paymentNumbersLoading } =
+    usePaymentNumbers();
+  const { data: withdrawalsPage } = useWithdrawals({ pageSize: 100 });
+  const requestWithdrawal = useRequestWithdrawal();
+  const cancelWithdrawal = useCancelWithdrawal();
+  const submitTopUp = useSubmitTopUp();
   const { data: profile } = useStoreProfile();
 
-  // State hooks
-  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
-  const [showDepositModal, setShowDepositModal] = useState(false);
-  const [withdrawAmount, setWithdrawAmount] = useState("");
-  const [depositAmount, setDepositAmount] = useState("");
-  const [phoneFrom, setPhoneFrom] = useState(profile?.phoneNumber || "");
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<
-    "mobile_wallet" | "instapay" | ""
-  >("");
-  const [senderInfo, setSenderInfo] = useState("");
-  const [screenshot, setScreenshot] = useState<File | null>(null);
-  const [isDepositing, setIsDepositing] = useState(false);
+  // ── State ───────────────────────────────────────────────────
   const [hideBalance, setHideBalance] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositPhoneFrom, setDepositPhoneFrom] = useState("");
+  const [depositNotes, setDepositNotes] = useState("");
+  const [selectedPaymentNumberId, setSelectedPaymentNumberId] =
+    useState<string>("");
 
-  // Derived values
+  // ── Derived ─────────────────────────────────────────────────
   const balance = wallet?.balance ?? 0;
   const currency = wallet?.currency ?? "EGP";
-  const totalEarnings = wallet?.totalEarnings ?? balance;
+  const totalIn = wallet?.totalIn ?? 0;
+  const totalOut = wallet?.totalOut ?? 0;
+  const minWithdrawal = wallet?.minimumWithdrawalAmount ?? 0;
+  const canWithdraw = wallet?.canRequestWithdrawal ?? true;
+  const pendingCount = wallet?.pendingWithdrawalCount ?? 0;
+  const pendingAmount = wallet?.pendingWithdrawalAmount ?? 0;
   const storePhone = profile?.phoneNumber;
-  const pendingWithdrawals = wallet?.pendingWithdrawals ?? [];
 
-  // Validate sender info based on payment method
-  const validateSenderInfo = useCallback(
-    (value: string, method: typeof selectedPaymentMethod): boolean => {
-      if (!value.trim()) {
-        toast.error(lang(t.requiredPhone));
-        return false;
-      }
+  const transactions = transactionsPage?.items ?? [];
+  const totalTxCount = transactionsPage?.totalCount ?? transactions.length;
 
-      if (method === "mobile_wallet") {
-        if (!isValidEgyptianPhone(value)) {
-          toast.error(lang(t.invalidPhone));
-          return false;
-        }
-      } else if (method === "instapay") {
-        if (!isValidInstapay(value)) {
-          toast.error(lang(t.invalidInstapay));
-          return false;
-        }
-      }
-      return true;
-    },
-    [toast, lang],
+  const pendingWithdrawals = useMemo<WithdrawalDto[]>(() => {
+    const items = withdrawalsPage?.items ?? [];
+    return items.filter((w) => (w.status ?? "").toLowerCase() === "pending");
+  }, [withdrawalsPage]);
+
+  const activePaymentNumbers = useMemo(
+    () => paymentNumbers.filter((pn) => pn.isActive),
+    [paymentNumbers],
   );
 
-  // useMemo and useCallback hooks
+  const selectedPaymentNumber = useMemo(
+    () => paymentNumbers.find((pn) => pn.id === selectedPaymentNumberId),
+    [paymentNumbers, selectedPaymentNumberId],
+  );
+
+  const quickAmounts = useMemo(() => {
+    if (balance <= 0) return [] as number[];
+    const candidates = new Set<number>();
+    if (minWithdrawal > 0 && minWithdrawal <= balance) {
+      candidates.add(minWithdrawal);
+    }
+    [1000, 5000, 10000].forEach((v) => {
+      if (v <= balance) candidates.add(v);
+    });
+    return Array.from(candidates)
+      .sort((a, b) => a - b)
+      .slice(0, 4);
+  }, [balance, minWithdrawal]);
+
+  // ── Handlers ────────────────────────────────────────────────
   const formatHidden = useCallback(
     (val: number) => (hideBalance ? "••••••" : formatCurrency(val)),
     [hideBalance],
   );
 
-  const transactions = useMemo(() => {
-    const walletTxs = (wallet?.transactions ?? []).map((tx: any) => ({
-      id: tx.id,
-      type: tx.type || "Unknown",
-      amount: tx.amount,
-      description: tx.description || getTransactionLabel(tx.type, lang),
-      status: tx.status,
-      createdAt: tx.createdAt,
-      source: "wallet",
-      paymentMethod: undefined as string | undefined,
-    }));
-
-    const requestTxs = walletRequests.map((req: WalletRequestDto) => ({
-      id: req.id,
-      type: "Deposit",
-      amount: req.amount,
-      description: isAr
-        ? `طلب إيداع${req.paymentMethod ? ` - ${req.paymentMethod}` : ""}`
-        : `Deposit Request${req.paymentMethod ? ` - ${req.paymentMethod}` : ""}`,
-      status: req.status,
-      createdAt: req.createdAt,
-      source: "requests",
-      paymentMethod: req.paymentMethod,
-    }));
-
-    return [...walletTxs, ...requestTxs].sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-  }, [wallet?.transactions, walletRequests, isAr, lang]);
+  const openWithdrawModal = useCallback(() => {
+    if (!canWithdraw) {
+      toast.error(lang(t.cannotWithdraw));
+      return;
+    }
+    setWithdrawAmount("");
+    setShowWithdrawModal(true);
+  }, [canWithdraw, toast, lang]);
 
   const handleWithdraw = useCallback(() => {
     const amount = Number(withdrawAmount);
@@ -278,11 +246,15 @@ export const WalletPage: React.FC = () => {
       toast.error(lang(t.minAmount));
       return;
     }
-    if (wallet && amount > wallet.balance) {
+    if (minWithdrawal > 0 && amount < minWithdrawal) {
+      toast.error(lang(t.belowMinimum));
+      return;
+    }
+    if (amount > balance) {
       toast.error(lang(t.insufficientBalance));
       return;
     }
-    withdrawMutation.mutate(
+    requestWithdrawal.mutate(
       { amount },
       {
         onSuccess: () => {
@@ -290,108 +262,79 @@ export const WalletPage: React.FC = () => {
           setShowWithdrawModal(false);
           setWithdrawAmount("");
         },
-        onError: (err: any) => {
+        onError: (err) => {
           toast.error(err?.message || lang(t.withdrawError));
         },
       },
     );
-  }, [withdrawAmount, wallet, withdrawMutation, toast, lang]);
+  }, [withdrawAmount, minWithdrawal, balance, requestWithdrawal, toast, lang]);
 
-  const handleDeposit = useCallback(async () => {
+  const handleCancelWithdrawal = useCallback(
+    (id: string) => {
+      if (!window.confirm(lang(t.cancelConfirm))) return;
+      cancelWithdrawal.mutate(id, {
+        onSuccess: () => toast.success(lang(t.cancelSuccess)),
+        onError: (err) => toast.error(err?.message || lang(t.cancelError)),
+      });
+    },
+    [cancelWithdrawal, toast, lang],
+  );
+
+  const openDepositModal = useCallback(() => {
+    setDepositAmount("");
+    setDepositPhoneFrom("");
+    setDepositNotes("");
+    setSelectedPaymentNumberId(activePaymentNumbers[0]?.id ?? "");
+    setShowDepositModal(true);
+  }, [activePaymentNumbers]);
+
+  const handleDeposit = useCallback(() => {
     const amount = Number(depositAmount);
     if (!amount || amount <= 0) {
       toast.error(lang(t.minAmount));
       return;
     }
-
-    if (!selectedPaymentMethod) {
+    if (!selectedPaymentNumberId || !selectedPaymentNumber) {
       toast.error(lang(t.selectPaymentMethod));
       return;
     }
-
-    if (!senderInfo.trim()) {
-      toast.error(
-        isAr ? "يرجى إدخال معلومات المرسل" : "Please enter sender information",
-      );
+    const phone = depositPhoneFrom.trim();
+    if (!phone) {
+      toast.error(lang(t.phoneFromRequired));
       return;
     }
-
-    // Validate sender info based on payment method
-    if (selectedPaymentMethod === "mobile_wallet") {
-      if (!isValidEgyptianPhone(senderInfo)) {
-        toast.error(lang(t.invalidPhone));
-        return;
-      }
-    } else if (selectedPaymentMethod === "instapay") {
-      if (!isValidInstapay(senderInfo)) {
-        toast.error(lang(t.invalidInstapay));
-        return;
-      }
+    if (!isValidPhone(phone)) {
+      toast.error(lang(t.phoneFromInvalid));
+      return;
     }
-
-    setIsDepositing(true);
-    try {
-      const formData = new FormData();
-      // Always send the phone number (senderInfo) to the API
-      formData.append("phoneFrom", senderInfo.trim());
-      formData.append(
-        "paymentMethod",
-        selectedPaymentMethod === "mobile_wallet"
-          ? "Mobile Wallet"
-          : "InstaPay",
-      );
-      formData.append("amount", String(amount));
-      if (screenshot) {
-        formData.append("screenshot", screenshot);
-      }
-
-      const response: any = await apiClient.post(
-        "/api/wallet/topup/with-screenshot",
-        formData,
-      );
-
-      const responseData = response?.data || response;
-      if (responseData?.success === false || responseData?.Success === false) {
-        throw new Error(
-          responseData?.message ||
-            responseData?.Message ||
-            lang(t.depositError),
-        );
-      }
-
-      toast.success(lang(t.depositSuccess));
-      setShowDepositModal(false);
-      setDepositAmount("");
-      setSenderInfo("");
-      setSelectedPaymentMethod("");
-      setScreenshot(null);
-      refetch();
-    } catch (err: any) {
-      toast.error(err?.message || lang(t.depositError));
-    } finally {
-      setIsDepositing(false);
-    }
+    submitTopUp.mutate(
+      {
+        amount,
+        paymentNumberId: selectedPaymentNumberId,
+        phoneFrom: phone,
+        paymentMethod: selectedPaymentNumber.paymentMethod,
+        notes: depositNotes.trim() || undefined,
+      },
+      {
+        onSuccess: () => {
+          toast.success(lang(t.depositSuccess));
+          setShowDepositModal(false);
+        },
+        onError: (err) => toast.error(err?.message || lang(t.depositError)),
+      },
+    );
   }, [
     depositAmount,
-    senderInfo,
-    selectedPaymentMethod,
-    screenshot,
+    depositPhoneFrom,
+    depositNotes,
+    selectedPaymentNumberId,
+    selectedPaymentNumber,
+    submitTopUp,
     toast,
     lang,
-    refetch,
-    isAr,
   ]);
 
-  // Reset sender info when payment method changes
-  const handlePaymentMethodChange = useCallback(
-    (method: "mobile_wallet" | "instapay") => {
-      setSelectedPaymentMethod(method);
-      // Clear sender info when switching methods
-      setSenderInfo("");
-    },
-    [],
-  );
-
+  // ── Loading ─────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div className="space-y-6 animate-fade-in">
@@ -453,9 +396,6 @@ export const WalletPage: React.FC = () => {
     );
   }
 
-  // ============================================
-  // MAIN RENDER
-  // ============================================
   return (
     <div
       className={cn(
@@ -476,7 +416,7 @@ export const WalletPage: React.FC = () => {
         </div>
         <button onClick={() => refetch()} className="btn btn-ghost btn-sm">
           <svg
-            className={cn("w-4 h-4")}
+            className="w-4 h-4"
             fill="none"
             viewBox="0 0 24 24"
             strokeWidth={2}
@@ -578,11 +518,8 @@ export const WalletPage: React.FC = () => {
           <div className="border-t-2 border-dashed border-white/10 my-6" />
           <div className="flex gap-3">
             <button
-              onClick={() => {
-                setWithdrawAmount("");
-                setShowWithdrawModal(true);
-              }}
-              disabled={balance <= 0}
+              onClick={openWithdrawModal}
+              disabled={balance <= 0 || !canWithdraw}
               className={cn(
                 "flex-1 px-5 py-3.5 rounded-xl text-sm font-semibold transition-all duration-200 bg-white text-primary-700 hover:bg-white/90 active:scale-[0.98] shadow-lg shadow-black/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2",
               )}
@@ -597,21 +534,17 @@ export const WalletPage: React.FC = () => {
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+                  d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M12 3v13.5m0 0-4.5-4.5M12 16.5l4.5-4.5"
                 />
               </svg>
+
               {lang(t.withdraw)}
             </button>
             <button
-              onClick={() => {
-                setDepositAmount("");
-                setSenderInfo("");
-                setSelectedPaymentMethod("");
-                setScreenshot(null);
-                setShowDepositModal(true);
-              }}
+              onClick={openDepositModal}
+              title={lang(t.deposit)}
               className={cn(
-                "flex-1 px-5 py-3.5 rounded-xl text-sm font-semibold transition-all duration-200 bg-white/20 text-white hover:bg-white/30 active:scale-[0.98] border border-white/20 flex items-center justify-center gap-2",
+                "flex-1 px-5 py-3.5 rounded-xl text-sm font-semibold transition-all duration-200 bg-white/20 text-white border border-white/20 flex items-center justify-center gap-2 hover:bg-white/30 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed",
               )}
             >
               <svg
@@ -637,7 +570,7 @@ export const WalletPage: React.FC = () => {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white dark:bg-surface-900 rounded-2xl border border-surface-200 dark:border-surface-800 p-4 shadow-sm">
           <p className="text-2xl font-bold text-surface-900 dark:text-white">
-            {isAr ? formatNumber(transactions.length) : transactions.length}
+            {isAr ? formatNumber(totalTxCount) : totalTxCount}
           </p>
           <p className="text-xs text-surface-500 dark:text-surface-400 mt-1">
             {lang(t.totalTransactions)}
@@ -645,20 +578,63 @@ export const WalletPage: React.FC = () => {
         </div>
         <div className="bg-white dark:bg-surface-900 rounded-2xl border border-surface-200 dark:border-surface-800 p-4 shadow-sm">
           <p className="text-2xl font-bold text-success-600 dark:text-success-400">
-            {formatCurrency(totalEarnings)}
+            {formatCurrency(totalIn)}
           </p>
           <p className="text-xs text-surface-500 dark:text-surface-400 mt-1">
             {lang(t.totalEarnings)}
           </p>
+          {totalOut > 0 && (
+            <p className="text-[10px] text-surface-400 dark:text-surface-500 mt-0.5">
+              {lang(t.totalOut)}: {formatCurrency(totalOut)}
+            </p>
+          )}
         </div>
       </div>
 
       {/* Pending Withdrawals */}
-      {pendingWithdrawals.length > 0 && (
-        <div className="bg-warning-50 dark:bg-warning-500/5 rounded-2xl border border-warning-200 dark:border-warning-500/10 p-4">
-          <p className="text-sm font-semibold text-warning-700 dark:text-warning-400">
-            {lang(t.pendingWithdrawals)}: {pendingWithdrawals.length}
-          </p>
+      {(pendingCount > 0 || pendingWithdrawals.length > 0) && (
+        <div className="bg-warning-50 dark:bg-warning-500/5 rounded-2xl border border-warning-200 dark:border-warning-500/10 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-warning-700 dark:text-warning-400">
+              {lang(t.pendingWithdrawals)}
+              {pendingCount > 0 && (
+                <span className="ml-2 inline-flex items-center justify-center text-[10px] font-bold px-2 py-0.5 rounded-full bg-warning-200/60 dark:bg-warning-500/20 text-warning-800 dark:text-warning-300">
+                  {pendingCount}
+                </span>
+              )}
+            </p>
+            {pendingAmount > 0 && (
+              <p className="text-xs font-semibold text-warning-700 dark:text-warning-400 tabular-nums">
+                {formatCurrency(pendingAmount)}
+              </p>
+            )}
+          </div>
+          {pendingWithdrawals.length > 0 && (
+            <div className="space-y-2">
+              {pendingWithdrawals.map((w) => (
+                <div
+                  key={w.id}
+                  className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-white dark:bg-surface-900 border border-warning-200 dark:border-warning-500/20"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold text-surface-900 dark:text-white tabular-nums">
+                      {formatCurrency(w.amount)}
+                    </p>
+                    <p className="text-[10px] text-surface-500 dark:text-surface-400">
+                      {getRelativeTime(w.createdAt)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleCancelWithdrawal(w.id)}
+                    disabled={cancelWithdrawal.isPending}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-error-50 dark:bg-error-500/10 text-error-600 dark:text-error-400 border border-error-200 dark:border-error-500/20 hover:bg-error-100 dark:hover:bg-error-500/20 disabled:opacity-50 transition-colors"
+                  >
+                    {lang(t.cancelRequest)}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -669,7 +645,20 @@ export const WalletPage: React.FC = () => {
             {lang(t.transactionHistory)}
           </h3>
         </div>
-        {transactions.length === 0 ? (
+        {txsLoading ? (
+          <div className="p-6 space-y-3">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="skeleton h-10 w-10 rounded-xl" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="skeleton h-4 w-32 rounded-lg" />
+                  <div className="skeleton h-3 w-20 rounded-lg" />
+                </div>
+                <div className="skeleton h-5 w-20 rounded-lg" />
+              </div>
+            ))}
+          </div>
+        ) : transactions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <div className="w-16 h-16 rounded-2xl bg-surface-100 dark:bg-surface-800 flex items-center justify-center mb-4">
               <svg
@@ -696,7 +685,7 @@ export const WalletPage: React.FC = () => {
         ) : (
           <div className="divide-y divide-surface-100 dark:divide-surface-800">
             {transactions.map((tx) => {
-              const isCredit = isCreditTransaction(tx.type);
+              const isCredit = isCreditTransaction(tx);
               return (
                 <div
                   key={tx.id}
@@ -721,23 +710,24 @@ export const WalletPage: React.FC = () => {
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+                          d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 7.5m0 0L7.5 12m4.5-4.5V21"
                         />
                       ) : (
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"
+                          d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
                         />
                       )}
                     </svg>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-surface-900 dark:text-white">
+                    <p className="text-sm font-semibold text-surface-900 dark:text-white truncate">
                       {tx.description || getTransactionLabel(tx.type, lang)}
                     </p>
                     <p className="text-xs text-surface-400 mt-0.5">
                       {getRelativeTime(tx.createdAt)}
+                      {tx.orderNumber && ` · #${tx.orderNumber}`}
                     </p>
                   </div>
                   <p
@@ -773,18 +763,11 @@ export const WalletPage: React.FC = () => {
             dir={isAr ? "rtl" : "ltr"}
             onClick={(e) => e.stopPropagation()}
           >
-            <div
-              className={cn(
-                "px-6 py-5 border-b border-surface-200 dark:border-surface-800 flex items-center sticky top-0 bg-white dark:bg-surface-900 z-10",
-              )}
-              style={{ flexDirection: isAr ? "row-reverse" : "row" }}
-            >
+            {/* Header — already correct */}
+            <div className="px-6 py-5 border-b border-surface-200 dark:border-surface-800 flex flex-row-reverse items-center sticky top-0 bg-white dark:bg-surface-900 z-10">
               <button
                 onClick={() => setShowWithdrawModal(false)}
-                className={cn(
-                  "p-2 rounded-xl text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors",
-                  isAr ? "order-1" : "order-1",
-                )}
+                className="p-2 rounded-xl text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
               >
                 <svg
                   className="w-5 h-5"
@@ -800,7 +783,7 @@ export const WalletPage: React.FC = () => {
                   />
                 </svg>
               </button>
-              <div className={cn("flex-1", isAr && "text-right order-2")}>
+              <div className={cn("flex-1", isAr && "text-right")}>
                 <h3 className="text-lg font-bold text-surface-900 dark:text-white">
                   {lang(t.withdraw)}
                 </h3>
@@ -815,19 +798,34 @@ export const WalletPage: React.FC = () => {
             <div className="p-6 space-y-4">
               <div
                 className={cn(
-                  "p-4 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-200 dark:border-surface-700",
+                  "grid grid-cols-2 gap-3 p-4 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-200 dark:border-surface-700",
                   isAr && "text-right",
                 )}
               >
-                <p className="text-xs text-surface-500 dark:text-surface-400">
-                  {lang(t.available)}
-                </p>
-                <p
-                  className="text-xl font-bold text-surface-900 dark:text-white mt-1 font-mono tabular-nums"
-                  dir="ltr"
-                >
-                  {formatCurrency(balance)}
-                </p>
+                <div>
+                  <p className="text-xs text-surface-500 dark:text-surface-400">
+                    {lang(t.available)}
+                  </p>
+                  <p
+                    className="text-lg font-bold text-surface-900 dark:text-white mt-0.5 font-mono tabular-nums"
+                    dir="ltr"
+                  >
+                    {formatCurrency(balance)}
+                  </p>
+                </div>
+                {minWithdrawal > 0 && (
+                  <div>
+                    <p className="text-xs text-surface-500 dark:text-surface-400">
+                      {lang(t.minimum)}
+                    </p>
+                    <p
+                      className="text-lg font-bold text-surface-900 dark:text-white mt-0.5 font-mono tabular-nums"
+                      dir="ltr"
+                    >
+                      {formatCurrency(minWithdrawal)}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className={cn("space-y-1.5", isAr && "text-right")}>
@@ -839,7 +837,7 @@ export const WalletPage: React.FC = () => {
                     type="number"
                     value={withdrawAmount}
                     onChange={(e) => setWithdrawAmount(e.target.value)}
-                    min="1"
+                    min={minWithdrawal || 1}
                     max={balance}
                     className={cn(
                       "w-full rounded-xl py-3 bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-transparent focus:outline-none focus:border-primary-500/50 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all text-sm font-medium",
@@ -859,15 +857,12 @@ export const WalletPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex gap-2 flex-wrap justify-start">
-                {[1000, 5000, 10000]
-                  .sort((a, b) => a - b)
-                  .map((amt) => (
+              {quickAmounts.length > 0 && (
+                <div className="flex gap-2 flex-wrap justify-start">
+                  {quickAmounts.map((amt) => (
                     <button
                       key={amt}
-                      onClick={() =>
-                        setWithdrawAmount(String(Math.min(amt, balance)))
-                      }
+                      onClick={() => setWithdrawAmount(String(amt))}
                       className={cn(
                         "px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-surface-900 dark:hover:text-white border border-surface-200 dark:border-surface-700",
                         Number(withdrawAmount) === amt &&
@@ -877,18 +872,12 @@ export const WalletPage: React.FC = () => {
                       {formatCurrency(amt)}
                     </button>
                   ))}
-              </div>
+                </div>
+              )}
 
               {Number(withdrawAmount) >= balance && balance > 0 && (
-                <div
-                  className={cn(
-                    "flex items-start gap-3 p-3 rounded-xl bg-warning-50 dark:bg-warning-500/10 border border-warning-200 dark:border-warning-500/20",
-                    isAr && "flex-row-reverse",
-                  )}
-                >
-                  <div
-                    className={cn("flex-shrink-0 mt-0.5", isAr && "order-2")}
-                  >
+                <div className="flex items-start gap-3 p-3 rounded-xl bg-warning-50 dark:bg-warning-500/10 border border-warning-200 dark:border-warning-500/20">
+                  <div className="flex-shrink-0 mt-0.5">
                     <svg
                       className="w-5 h-5 text-warning-500"
                       fill="none"
@@ -906,7 +895,7 @@ export const WalletPage: React.FC = () => {
                   <p
                     className={cn(
                       "text-xs text-warning-700 dark:text-warning-400 flex-1",
-                      isAr && "text-right order-1",
+                      isAr && "text-right",
                     )}
                   >
                     {isAr
@@ -916,12 +905,10 @@ export const WalletPage: React.FC = () => {
                 </div>
               )}
 
-              <div
-                className={cn("flex gap-3 pt-2", isAr && "flex-row-reverse")}
-              >
+              <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => setShowWithdrawModal(false)}
-                  disabled={withdrawMutation.isPending}
+                  disabled={requestWithdrawal.isPending}
                   className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold bg-surface-100 dark:bg-surface-800 text-surface-700 dark:text-surface-300 hover:bg-surface-200 dark:hover:bg-surface-700 active:scale-[0.98] transition-all duration-200 disabled:opacity-50"
                 >
                   {lang(t.cancel)}
@@ -929,16 +916,16 @@ export const WalletPage: React.FC = () => {
                 <button
                   onClick={handleWithdraw}
                   disabled={
-                    withdrawMutation.isPending ||
+                    requestWithdrawal.isPending ||
                     !withdrawAmount ||
-                    Number(withdrawAmount) <= 0
+                    Number(withdrawAmount) <= 0 ||
+                    (minWithdrawal > 0 &&
+                      Number(withdrawAmount) < minWithdrawal) ||
+                    Number(withdrawAmount) > balance
                   }
-                  className={cn(
-                    "flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 bg-primary-600 text-white hover:bg-primary-700 active:scale-[0.98] dark:bg-primary-500 dark:hover:bg-primary-600 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 flex items-center justify-center gap-2",
-                    isAr && "flex-row-reverse",
-                  )}
+                  className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 bg-primary-600 text-white hover:bg-primary-700 active:scale-[0.98] dark:bg-primary-500 dark:hover:bg-primary-600 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 flex items-center justify-center gap-2"
                 >
-                  {withdrawMutation.isPending ? (
+                  {requestWithdrawal.isPending ? (
                     <>
                       <svg
                         className="w-4 h-4 animate-spin"
@@ -995,24 +982,15 @@ export const WalletPage: React.FC = () => {
           }
         >
           <div
-            className={cn(
-              "w-full max-w-md rounded-2xl overflow-hidden animate-fade-in-scale mb-8 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-2xl shadow-black/10 dark:shadow-black/30",
-            )}
+            className="w-full max-w-md rounded-2xl overflow-hidden animate-fade-in-scale mb-8 bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-2xl shadow-black/10 dark:shadow-black/30"
             dir={isAr ? "rtl" : "ltr"}
             onClick={(e) => e.stopPropagation()}
           >
-            <div
-              className={cn(
-                "px-6 py-5 border-b border-surface-200 dark:border-surface-800 flex items-center sticky top-0 bg-white dark:bg-surface-900 z-10",
-              )}
-              style={{ flexDirection: isAr ? "row-reverse" : "row" }}
-            >
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-surface-200 dark:border-surface-800 flex flex-row-reverse items-center sticky top-0 bg-white dark:bg-surface-900 z-10">
               <button
                 onClick={() => setShowDepositModal(false)}
-                className={cn(
-                  "p-2 rounded-xl text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors",
-                  isAr ? "order-1" : "order-1",
-                )}
+                className="p-2 rounded-xl text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
               >
                 <svg
                   className="w-5 h-5"
@@ -1028,19 +1006,88 @@ export const WalletPage: React.FC = () => {
                   />
                 </svg>
               </button>
-              <div className={cn("flex-1", isAr && "text-right order-2")}>
+              <div className={cn("flex-1", isAr && "text-right")}>
                 <h3 className="text-lg font-bold text-surface-900 dark:text-white">
                   {lang(t.deposit)}
                 </h3>
                 <p className="text-xs text-surface-500 dark:text-surface-400 mt-0.5">
-                  {isAr
-                    ? "أدخل بيانات الإيداع الخاصة بك"
-                    : "Enter your deposit details"}
+                  {lang(t.depositSubtitle)}
                 </p>
               </div>
             </div>
 
             <div className="p-6 space-y-4">
+              {/* Payment numbers */}
+              <div className={cn("space-y-1.5", isAr && "text-right")}>
+                <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400">
+                  {lang(t.selectPaymentMethod)}
+                </label>
+                {paymentNumbersLoading ? (
+                  <div className="skeleton h-20 w-full rounded-xl" />
+                ) : activePaymentNumbers.length === 0 ? (
+                  <p className="text-xs text-error-500">
+                    {lang(t.noPaymentNumbers)}
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {activePaymentNumbers.map((pn) => {
+                      const selected = selectedPaymentNumberId === pn.id;
+                      return (
+                        <button
+                          key={pn.id}
+                          type="button"
+                          onClick={() => setSelectedPaymentNumberId(pn.id)}
+                          className={cn(
+                            "w-full text-start p-3 rounded-xl border-2 transition-all",
+                            selected
+                              ? "border-primary-500 bg-primary-50 dark:bg-primary-500/10"
+                              : "border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/50 hover:border-surface-300 dark:hover:border-surface-600",
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "flex items-center justify-between gap-2",
+                              isAr && "flex-row-reverse",
+                            )}
+                          >
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-surface-900 dark:text-white">
+                                {pn.paymentMethod}
+                                {pn.label && (
+                                  <span className="text-xs font-normal text-surface-500 dark:text-surface-400">
+                                    {" · "}
+                                    {pn.label}
+                                  </span>
+                                )}
+                              </p>
+                              <p
+                                className="text-xs font-mono text-surface-500 dark:text-surface-400 tabular-nums mt-0.5"
+                                dir="ltr"
+                              >
+                                {pn.phoneNumber}
+                              </p>
+                            </div>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard?.writeText(pn.phoneNumber);
+                                toast.success(lang(t.copied));
+                              }}
+                              className="text-[10px] font-semibold px-2 py-1 rounded-md bg-surface-200 dark:bg-surface-700 text-surface-700 dark:text-surface-200 hover:bg-surface-300 dark:hover:bg-surface-600"
+                            >
+                              {lang(t.copy)}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Amount */}
               <div className={cn("space-y-1.5", isAr && "text-right")}>
                 <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400">
                   {lang(t.amount)}
@@ -1050,7 +1097,7 @@ export const WalletPage: React.FC = () => {
                     type="number"
                     value={depositAmount}
                     onChange={(e) => setDepositAmount(e.target.value)}
-                    min="1"
+                    min={1}
                     className={cn(
                       "w-full rounded-xl py-3 bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-transparent focus:outline-none focus:border-primary-500/50 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all text-sm font-medium",
                       isAr ? "pr-4 pl-12 text-right" : "pl-4 pr-12 text-left",
@@ -1068,326 +1115,53 @@ export const WalletPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex gap-2 flex-wrap justify-start">
-                {[200, 500, 1000, 2000].map((amt) => (
-                  <button
-                    key={amt}
-                    onClick={() => setDepositAmount(String(amt))}
-                    className={cn(
-                      "px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700 hover:text-surface-900 dark:hover:text-white border border-surface-200 dark:border-surface-700",
-                      Number(depositAmount) === amt &&
-                        "border-primary-400 bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400 dark:border-primary-500/30",
-                    )}
-                  >
-                    {formatCurrency(amt)}
-                  </button>
-                ))}
-              </div>
-
-              {/* Payment Method Selection */}
+              {/* Sender phone */}
               <div className={cn("space-y-1.5", isAr && "text-right")}>
                 <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400">
-                  {lang(t.paymentMethod)}
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handlePaymentMethodChange("mobile_wallet")}
-                    className={cn(
-                      "p-4 rounded-xl border-2 transition-all duration-200 flex flex-col items-center gap-2",
-                      selectedPaymentMethod === "mobile_wallet"
-                        ? "border-primary-500 bg-primary-50 dark:bg-primary-500/10"
-                        : "border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/50 hover:border-primary-300",
-                    )}
-                  >
-                    <svg
-                      className={cn(
-                        "w-6 h-6",
-                        selectedPaymentMethod === "mobile_wallet"
-                          ? "text-primary-600 dark:text-primary-400"
-                          : "text-surface-500 dark:text-surface-400",
-                      )}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      strokeWidth={1.5}
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 0V3h3V1.5m-3 0h3"
-                      />
-                    </svg>
-                    <span
-                      className={cn(
-                        "text-sm font-medium",
-                        selectedPaymentMethod === "mobile_wallet"
-                          ? "text-primary-700 dark:text-primary-300"
-                          : "text-surface-700 dark:text-surface-300",
-                      )}
-                    >
-                      {lang(t.mobileWallet)}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handlePaymentMethodChange("instapay")}
-                    className={cn(
-                      "p-4 rounded-xl border-2 transition-all duration-200 flex flex-col items-center gap-2",
-                      selectedPaymentMethod === "instapay"
-                        ? "border-primary-500 bg-primary-50 dark:bg-primary-500/10"
-                        : "border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/50 hover:border-primary-300",
-                    )}
-                  >
-                    <svg
-                      className={cn(
-                        "w-6 h-6",
-                        selectedPaymentMethod === "instapay"
-                          ? "text-primary-600 dark:text-primary-400"
-                          : "text-surface-500 dark:text-surface-400",
-                      )}
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <rect
-                        x="2"
-                        y="2"
-                        width="20"
-                        height="20"
-                        rx="5.5"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      />
-                      <circle cx="13.5" cy="7.5" r="1.75" fill="currentColor" />
-                      <path
-                        d="M13.5 11.5l-2 5.5"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <span
-                      className={cn(
-                        "text-sm font-medium",
-                        selectedPaymentMethod === "instapay"
-                          ? "text-primary-700 dark:text-primary-300"
-                          : "text-surface-700 dark:text-surface-300",
-                      )}
-                    >
-                      {lang(t.instapay)}
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Sender Information */}
-              {selectedPaymentMethod && (
-                <div className={cn("space-y-1.5", isAr && "text-right")}>
-                  <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400">
-                    {selectedPaymentMethod === "mobile_wallet"
-                      ? lang(t.phoneFrom)
-                      : "InstaPay " + lang(t.phoneFrom)}
-                  </label>
-                  <input
-                    type="text"
-                    value={senderInfo}
-                    onChange={(e) => setSenderInfo(e.target.value)}
-                    className={cn(
-                      "w-full rounded-xl py-3 px-4 bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-transparent focus:outline-none focus:border-primary-500/50 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all text-sm font-medium",
-                      isAr ? "text-right" : "text-left",
-                    )}
-                    placeholder={
-                      selectedPaymentMethod === "mobile_wallet"
-                        ? lang(t.phoneFromPlaceholder)
-                        : lang(t.instapayAccountPlaceholder)
-                    }
-                    dir="ltr"
-                  />
-                </div>
-              )}
-
-              {/* Payment Numbers */}
-              {selectedPaymentMethod && paymentNumbers.length > 0 && (
-                <div className={cn("space-y-1.5", isAr && "text-right")}>
-                  <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400">
-                    {isAr
-                      ? "أرقام التحويل المتاحة"
-                      : "Available Transfer Numbers"}
-                  </label>
-                  <div className="space-y-2">
-                    {paymentNumbers.map((pn) => (
-                      <button
-                        key={pn.id}
-                        type="button"
-                        onClick={() => {
-                          setSenderInfo(pn.phoneNumber);
-                        }}
-                        className={cn(
-                          "w-full text-left p-3 rounded-xl border transition-all duration-200",
-                          "bg-surface-50 dark:bg-surface-800/50 border-surface-200 dark:border-surface-700",
-                          "hover:border-primary-400 hover:bg-primary-50/30 dark:hover:bg-primary-500/5",
-                          senderInfo === pn.phoneNumber &&
-                            "border-primary-400 bg-primary-50 dark:bg-primary-500/10",
-                        )}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p
-                              className="text-sm font-semibold text-surface-900 dark:text-white"
-                              dir="ltr"
-                            >
-                              {pn.phoneNumber}
-                            </p>
-                            <p className="text-xs text-surface-500 dark:text-surface-400">
-                              {pn.paymentMethod || pn.label}
-                            </p>
-                          </div>
-                          {senderInfo === pn.phoneNumber && (
-                            <svg
-                              className="w-5 h-5 text-primary-500"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              strokeWidth={2}
-                              stroke="currentColor"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="m4.5 12.75 6 6 9-13.5"
-                              />
-                            </svg>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Screenshot Upload */}
-              <div className={cn("space-y-1.5", isAr && "text-right")}>
-                <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400">
-                  {lang(t.screenshot)}{" "}
-                  <span className="font-normal text-surface-400">
-                    ({isAr ? "اختياري" : "Optional"})
-                  </span>
+                  {lang(t.phoneFrom)}
                 </label>
                 <input
-                  type="file"
-                  ref={fileInputRef}
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) setScreenshot(file);
-                  }}
-                  className="hidden"
+                  type="tel"
+                  inputMode="numeric"
+                  value={depositPhoneFrom}
+                  onChange={(e) =>
+                    setDepositPhoneFrom(
+                      e.target.value.replace(/[^\d]/g, "").slice(0, 11),
+                    )
+                  }
+                  className={cn(
+                    "w-full rounded-xl py-3 px-4 bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-transparent focus:outline-none focus:border-primary-500/50 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all text-sm font-medium",
+                    isAr && "text-right",
+                  )}
+                  placeholder={lang(t.phoneFromPlaceholder)}
+                  dir="ltr"
                 />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className={cn(
-                    "w-full py-5 rounded-xl border-2 border-dashed transition-all duration-200 flex flex-col items-center justify-center gap-2.5 hover:border-primary-400/50 hover:bg-primary-50/30 dark:hover:bg-primary-500/5 active:scale-[0.99]",
-                    screenshot
-                      ? "border-success-400 bg-success-50/50 dark:bg-success-500/10"
-                      : "border-surface-300 dark:border-surface-600 bg-surface-50/50 dark:bg-surface-800/50",
-                  )}
-                >
-                  {screenshot ? (
-                    <>
-                      <div className="w-10 h-10 rounded-full bg-success-100 dark:bg-success-500/20 flex items-center justify-center">
-                        <svg
-                          className="w-5 h-5 text-success-600 dark:text-success-400"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth={2}
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="m4.5 12.75 6 6 9-13.5"
-                          />
-                        </svg>
-                      </div>
-                      <span className="text-sm font-medium text-success-700 dark:text-success-400 truncate max-w-[200px]">
-                        {screenshot.name}
-                      </span>
-                      <span className="text-xs text-success-500 dark:text-success-400/70">
-                        {lang(t.changeScreenshot)}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <div className="w-12 h-12 rounded-xl bg-surface-100 dark:bg-surface-800 flex items-center justify-center">
-                        <svg
-                          className="w-6 h-6 text-surface-400 dark:text-surface-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth={1}
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"
-                          />
-                        </svg>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-sm font-medium text-surface-500 dark:text-surface-400">
-                          {lang(t.uploadScreenshot)}
-                        </p>
-                        <p className="text-xs text-surface-400 dark:text-surface-500 mt-0.5">
-                          {isAr
-                            ? "اختياري - PNG, JPG حتى 5MB"
-                            : "Optional - PNG, JPG up to 5MB"}
-                        </p>
-                      </div>
-                    </>
-                  )}
-                </button>
               </div>
 
-              {/* Info Message */}
-              <div
-                className={cn(
-                  "flex items-start gap-3 p-3 rounded-xl bg-info-50 dark:bg-info-500/10 border border-info-200 dark:border-info-500/20",
-                  isAr && "flex-row-reverse",
-                )}
-              >
-                <div className={cn("flex-shrink-0 mt-0.5", isAr && "order-2")}>
-                  <svg
-                    className="w-5 h-5 text-info-500"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={1.5}
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-                    />
-                  </svg>
-                </div>
-                <p
+              {/* Notes (optional) */}
+              <div className={cn("space-y-1.5", isAr && "text-right")}>
+                <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400">
+                  {lang(t.notes)}
+                </label>
+                <textarea
+                  value={depositNotes}
+                  onChange={(e) => setDepositNotes(e.target.value)}
+                  rows={2}
                   className={cn(
-                    "text-xs text-info-700 dark:text-info-400 flex-1",
-                    isAr && "text-right order-1",
+                    "w-full rounded-xl py-2.5 px-4 bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-transparent focus:outline-none focus:border-primary-500/50 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all text-sm font-medium resize-none",
+                    isAr && "text-right",
                   )}
-                >
-                  {isAr
-                    ? "سيتم مراجعة طلب الإيداع الخاص بك وسيتم إضافة الرصيد بعد التأكيد"
-                    : "Your deposit request will be reviewed and the balance will be added after confirmation"}
-                </p>
+                  placeholder={lang(t.notesPlaceholder)}
+                />
               </div>
 
-              {/* Actions */}
+              {/* Footer buttons */}
               <div
                 className={cn("flex gap-3 pt-2", isAr && "flex-row-reverse")}
               >
                 <button
                   onClick={() => setShowDepositModal(false)}
-                  disabled={isDepositing}
+                  disabled={submitTopUp.isPending}
                   className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold bg-surface-100 dark:bg-surface-800 text-surface-700 dark:text-surface-300 hover:bg-surface-200 dark:hover:bg-surface-700 active:scale-[0.98] transition-all duration-200 disabled:opacity-50"
                 >
                   {lang(t.cancel)}
@@ -1395,22 +1169,18 @@ export const WalletPage: React.FC = () => {
                 <button
                   onClick={handleDeposit}
                   disabled={
-                    isDepositing ||
+                    submitTopUp.isPending ||
                     !depositAmount ||
                     Number(depositAmount) <= 0 ||
-                    !selectedPaymentMethod ||
-                    !senderInfo.trim() ||
-                    (selectedPaymentMethod === "mobile_wallet" &&
-                      !isValidEgyptianPhone(senderInfo)) ||
-                    (selectedPaymentMethod === "instapay" &&
-                      !isValidInstapay(senderInfo))
+                    !selectedPaymentNumberId ||
+                    !isValidPhone(depositPhoneFrom)
                   }
                   className={cn(
                     "flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200 bg-primary-600 text-white hover:bg-primary-700 active:scale-[0.98] dark:bg-primary-500 dark:hover:bg-primary-600 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 flex items-center justify-center gap-2",
                     isAr && "flex-row-reverse",
                   )}
                 >
-                  {isDepositing ? (
+                  {submitTopUp.isPending ? (
                     <>
                       <svg
                         className="w-4 h-4 animate-spin"
@@ -1434,22 +1204,7 @@ export const WalletPage: React.FC = () => {
                       <span>{lang(t.processing)}</span>
                     </>
                   ) : (
-                    <>
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth={2}
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
-                        />
-                      </svg>
-                      <span>{lang(t.confirmDeposit)}</span>
-                    </>
+                    <span>{lang(t.confirmDeposit)}</span>
                   )}
                 </button>
               </div>

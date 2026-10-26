@@ -7,7 +7,7 @@ import { formatCurrency } from "@shared/utils/formatters";
 import { useMenuCategories } from "@shared/hooks/useMenuCategories";
 import {
   useStoreProducts,
-  useToggleProductAvailability,
+  useSetProductAvailability,
   useDeleteProduct,
 } from "@shared/hooks/useStoreProducts";
 import type { ProductDto, MenuCategoryDto } from "@shared/types";
@@ -71,7 +71,7 @@ const t = {
 // ============================================
 
 const getProductDisplayName = (product: ProductDto, isAr: boolean): string =>
-  isAr ? product.nameAr : product.nameEn;
+  (isAr ? product.nameAr : product.nameEn) ?? "";
 
 const getProductDisplayDescription = (
   product: ProductDto,
@@ -81,7 +81,7 @@ const getProductDisplayDescription = (
 const getCategoryDisplayName = (
   category: MenuCategoryDto,
   isAr: boolean,
-): string => (isAr ? category.nameAr : category.nameEn);
+): string => (isAr ? category.nameAr : category.nameEn) ?? "";
 
 // ============================================
 // Delete Confirm Modal
@@ -206,14 +206,19 @@ export const MenuPage: React.FC = () => {
 
   const { store } = useStore();
 
-  const { data: categories = [], isLoading: categoriesLoading } =
+  const { data: categoriesData, isLoading: categoriesLoading } =
     useMenuCategories();
+  const categories = categoriesData ?? [];
+
+  // Paged response — .items is the array. 100 is the server's max page size.
   const {
-    data: products = [],
+    data: productsPage,
     isLoading: productsLoading,
     refetch,
-  } = useStoreProducts();
-  const toggleAvailability = useToggleProductAvailability();
+  } = useStoreProducts(undefined, 1, 100);
+  const products = productsPage?.items ?? [];
+
+  const setAvailability = useSetProductAvailability();
   const deleteProduct = useDeleteProduct();
 
   const isLoading = categoriesLoading || productsLoading;
@@ -241,7 +246,7 @@ export const MenuPage: React.FC = () => {
     const available = products.filter((p) => p.isAvailable);
     const avgPrice =
       products.length > 0
-        ? products.reduce((sum, p) => sum + (p.discountedPrice || p.price), 0) /
+        ? products.reduce((sum, p) => sum + (p.effectivePrice ?? p.price), 0) /
           products.length
         : 0;
     return {
@@ -253,13 +258,17 @@ export const MenuPage: React.FC = () => {
     };
   }, [products, categories]);
 
-  const handleToggleAvailability = async (productId: string) => {
-    setTogglingId(productId);
+  const handleToggleAvailability = async (product: ProductDto) => {
+    setTogglingId(product.id);
     try {
-      await toggleAvailability.mutateAsync(productId);
+      await setAvailability.mutateAsync({
+        productId: product.id,
+        isAvailable: !product.isAvailable,
+      });
       toast.success(lang(t.statusUpdated));
-    } catch {
-      toast.error(lang(t.error));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : lang(t.error);
+      toast.error(message);
     } finally {
       setTogglingId(null);
     }
@@ -272,8 +281,9 @@ export const MenuPage: React.FC = () => {
       await deleteProduct.mutateAsync(deleteTarget.id);
       toast.success(lang(t.deleteSuccess));
       setDeleteTarget(null);
-    } catch {
-      toast.error(lang(t.error));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : lang(t.error);
+      toast.error(message);
     } finally {
       setDeletingId(null);
     }
@@ -481,7 +491,7 @@ export const MenuPage: React.FC = () => {
         <div className="relative w-full sm:max-w-md">
           <svg
             className={cn(
-              "absolute top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400 dark:text-surface-500",
+              "absolute top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400 dark:text-surface-500 pointer-events-none",
               isAr ? "right-3" : "left-3",
             )}
             fill="none"
@@ -495,63 +505,45 @@ export const MenuPage: React.FC = () => {
               d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
             />
           </svg>
-          <div className="relative w-full sm:max-w-md">
-            <svg
-              className={cn(
-                "absolute top-1/2 -translate-y-1/2 w-4 h-4 text-surface-400 dark:text-surface-500 pointer-events-none",
-                isAr ? "right-3" : "left-3",
-              )}
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={2}
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
-              />
-            </svg>
-            <input
-              type="text"
-              inputMode="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={lang(t.searchPlaceholder)}
-              className={cn(
-                "w-full rounded-xl py-2.5 bg-white dark:bg-surface-900 text-sm",
-                "text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500",
-                "border-2 border-surface-200 dark:border-surface-700",
-                "focus:outline-none focus:border-primary-500/50",
-                "transition-all duration-200",
-                isAr ? "pr-10 pl-10" : "pl-10 pr-10",
-              )}
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className={cn(
-                  "absolute top-1/2 -translate-y-1/2 p-1 rounded-lg text-surface-400 hover:text-surface-600 dark:hover:text-surface-200 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors",
-                  isAr ? "left-2" : "right-2",
-                )}
-              >
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2}
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M6 18 18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
+          <input
+            type="text"
+            inputMode="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={lang(t.searchPlaceholder)}
+            className={cn(
+              "w-full rounded-xl py-2.5 bg-white dark:bg-surface-900 text-sm",
+              "text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500",
+              "border-2 border-surface-200 dark:border-surface-700",
+              "focus:outline-none focus:border-primary-500/50",
+              "transition-all duration-200",
+              isAr ? "pr-10 pl-10" : "pl-10 pr-10",
             )}
-          </div>
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className={cn(
+                "absolute top-1/2 -translate-y-1/2 p-1 rounded-lg text-surface-400 hover:text-surface-600 dark:hover:text-surface-200 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors",
+                isAr ? "left-2" : "right-2",
+              )}
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 18 18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* Category Pills */}
@@ -578,7 +570,7 @@ export const MenuPage: React.FC = () => {
                   : "bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700",
               )}
             >
-              {getCategoryDisplayName(cat, isAr)} ({cat.productCount || 0})
+              {getCategoryDisplayName(cat, isAr)} ({cat.productsCount ?? 0})
             </button>
           ))}
         </div>
@@ -662,9 +654,7 @@ export const MenuPage: React.FC = () => {
                     100,
                 )
               : 0;
-            const displayPrice = hasDiscount
-              ? product.discountedPrice!
-              : product.price;
+            const displayPrice = product.effectivePrice ?? product.price;
             const displayName = getProductDisplayName(product, isAr);
             const displayDescription = getProductDisplayDescription(
               product,
@@ -691,20 +681,7 @@ export const MenuPage: React.FC = () => {
                       loading="lazy"
                       className="w-full h-full object-cover"
                       onError={(e) => {
-                        const img = e.target as HTMLImageElement;
-                        img.style.display = "none";
-                        const parent = img.parentElement;
-                        if (parent) {
-                          const fallbackDiv = document.createElement("div");
-                          fallbackDiv.className =
-                            "w-full h-full flex items-center justify-center bg-surface-100 dark:bg-surface-800";
-                          fallbackDiv.innerHTML = `
-            <svg class="w-12 h-12 text-surface-300 dark:text-surface-600" fill="none" viewBox="0 0 24 24" strokeWidth="1" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
-            </svg>
-          `;
-                          parent.appendChild(fallbackDiv);
-                        }
+                        (e.target as HTMLImageElement).style.display = "none";
                       }}
                     />
                   ) : (
@@ -725,7 +702,6 @@ export const MenuPage: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Status Badge */}
                   <span
                     className={cn(
                       "absolute top-3 px-2.5 py-1 rounded-full text-[10px] font-semibold border",
@@ -753,9 +729,9 @@ export const MenuPage: React.FC = () => {
 
                 {/* Content */}
                 <div className="p-4 flex flex-col flex-1">
-                  {product.menuCategoryName && (
+                  {product.categoryName && (
                     <p className="text-[11px] font-semibold text-primary-600 dark:text-primary-400 mb-1">
-                      {product.menuCategoryName}
+                      {product.categoryName}
                     </p>
                   )}
                   <h3 className="text-sm font-semibold text-surface-900 dark:text-surface-100 mb-1 line-clamp-1">
@@ -783,7 +759,6 @@ export const MenuPage: React.FC = () => {
                     {product.preparationTimeMinutes} {lang(t.minutes)}
                   </div>
                   <div className="flex-1" />
-                  {/* Price & Actions */}
                   <div className="flex items-center justify-between pt-3 border-t border-surface-100 dark:border-surface-800">
                     <div>
                       {hasDiscount ? (
@@ -803,7 +778,7 @@ export const MenuPage: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-0.5">
                       <button
-                        onClick={() => handleToggleAvailability(product.id)}
+                        onClick={() => handleToggleAvailability(product)}
                         disabled={isProcessing}
                         className={cn(
                           "p-2 rounded-xl transition-colors",

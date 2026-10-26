@@ -16,8 +16,8 @@ import {
   useAcceptOrder,
   useRejectOrder,
   orderKeys,
+  type NormalizedOrder,
 } from "@shared/hooks/useStoreOrders";
-import type { StoreOrderDto } from "@shared/types";
 
 // ============================================================
 // Translations
@@ -348,7 +348,7 @@ const groupOrderItems = (items: any[], isAr: boolean): GroupedOrderItem[] => {
 // ============================================================
 
 interface NewOrderModalProps {
-  orders: StoreOrderDto[];
+  orders: NormalizedOrder[];
   onClose: () => void;
   onOrderProcessed?: (orderId: string) => void;
 }
@@ -424,16 +424,23 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
     };
   }, []);
 
-  const moveToNext = useCallback(() => {
+  const handleNextClick = useCallback(() => {
     setShowRejectInput(false);
     setRejectReason("");
     if (currentIndex < activeOrders.length - 1) {
       setCurrentIndex((prev) => prev + 1);
-    } else {
+    }
+  }, [currentIndex, activeOrders.length]);
+
+  const advanceAfterProcessing = useCallback(() => {
+    setShowRejectInput(false);
+    setRejectReason("");
+    if (activeOrders.length <= 1) {
       setIsVisible(false);
       setTimeout(onClose, 300);
     }
-  }, [currentIndex, activeOrders.length, onClose]);
+    // else: stay at currentIndex — next order is now at that position
+  }, [activeOrders.length, onClose]);
 
   const handleAccept = async () => {
     if (isAccepting || !currentOrder) return;
@@ -451,7 +458,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         startLoop();
       }
 
-      moveToNext();
+      advanceAfterProcessing();
     } catch {
       toast.error(isAr ? "فشل قبول الطلب" : "Failed to accept order");
     } finally {
@@ -483,7 +490,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
         startLoop();
       }
 
-      moveToNext();
+      advanceAfterProcessing();
     } catch {
       toast.error(isAr ? "فشل رفض الطلب" : "Failed to reject order");
     } finally {
@@ -967,7 +974,7 @@ export const NewOrderModal: React.FC<NewOrderModalProps> = ({
             </span>
 
             <button
-              onClick={moveToNext}
+              onClick={handleNextClick}
               disabled={isProcessing || (isLastOrder && !showRejectInput)}
               className={cn(
                 "p-2 rounded-xl transition-all duration-200",

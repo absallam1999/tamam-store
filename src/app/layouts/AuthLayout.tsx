@@ -518,7 +518,7 @@ const AuthFooter: React.FC<{ isLogin: boolean; isAr: boolean }> = ({
       )}
 
       <a
-        href="https://tamaam.cloud/contact"
+        href="https://tamamapp.net/contact"
         target="_blank"
         rel="noopener noreferrer"
         className={cn(
@@ -689,7 +689,7 @@ export const AuthLayout: React.FC = () => {
             >
               <img
                 src="/icon.svg"
-                alt="Tamaam Logo"
+                alt="Tamam Logo"
                 className="w-9 h-9 xl:w-10 xl:h-10 drop-shadow-lg"
               />
             </div>

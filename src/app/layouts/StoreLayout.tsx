@@ -1,4 +1,12 @@
-import { Suspense, useState, useEffect, useRef, type ReactNode } from "react";
+import {
+  Suspense,
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+  type ReactNode,
+} from "react";
 import {
   Outlet,
   useLocation,
@@ -20,15 +28,43 @@ import {
   useUnreadCount,
   useMarkAsRead,
 } from "@shared/hooks/useStoreNotifications";
-import { useStoreOrderStats } from "@shared/hooks/useStoreOrders";
-import { useStoreOrders } from "@shared/hooks/useStoreOrders";
-import { useSupportTickets } from "@shared/hooks/useStoreSupport";
+import {
+  useStoreOrderStats,
+  useStoreOrders,
+  type NormalizedOrder,
+} from "@shared/hooks/useStoreOrders";
 import { NewOrderModal } from "@features/orders/NewOrderModal";
 import {
   useAvailableStoreTypes,
   useAddStoreType,
 } from "@shared/hooks/useStoreTypes";
-import type { StoreOrderDto } from "@shared/types";
+import type { NotificationSummaryDto } from "@shared/types";
+
+// ============================================
+// Notification → route helper
+// ============================================
+
+function buildNotificationLink(n: NotificationSummaryDto): string | undefined {
+  const { targetPage, targetId } = n.payload ?? {};
+  if (!targetPage) return undefined;
+
+  switch (targetPage) {
+    case "Order":
+    case "OrderDetail":
+      return targetId ? `/dashboard/orders/${targetId}` : "/dashboard/orders";
+    case "Chat":
+    case "ChatDetail":
+      return "/dashboard/support";
+    case "Wallet":
+      return "/dashboard/wallet";
+    case "Settings":
+      return "/dashboard/settings";
+    case "Notifications":
+      return "/dashboard/notifications";
+    default:
+      return "/dashboard/notifications";
+  }
+}
 
 // ============================================
 // Types
@@ -66,10 +102,7 @@ const Icon: React.FC<{ children: ReactNode; className?: string }> = ({
 // Navigation Items
 // ============================================
 
-const createMainNavItems = (
-  pendingOrdersCount: number,
-  supportTicketsCount: number,
-): NavItem[] => [
+const createMainNavItems = (pendingOrdersCount: number): NavItem[] => [
   {
     to: "/dashboard",
     labelAr: "لوحة التحكم",
@@ -179,7 +212,6 @@ const createMainNavItems = (
     to: "/dashboard/support",
     labelAr: "الدعم الفنى",
     labelEn: "Technical Support",
-    badge: supportTicketsCount > 0 ? supportTicketsCount : undefined,
     icon: (
       <Icon>
         <path
@@ -268,26 +300,23 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const { data: orderStats } = useStoreOrderStats();
   const { data: unreadData } = useUnreadCount();
-  const { data: tickets = [] } = useSupportTickets();
-
-  // Count open support tickets (not closed or resolved)
-  const openSupportTickets = tickets.filter(
-    (t) => t.status === "Open" || t.status === "InProgress",
-  ).length;
 
   const pendingOrdersCount = orderStats?.pendingOrders ?? 0;
-  const unreadNotifications = unreadData ?? 0;
+  const unreadNotifications = unreadData?.total ?? 0;
 
-  const mainNavItems = createMainNavItems(
-    pendingOrdersCount,
-    openSupportTickets,
+  // Stable arrays — only recompute when the counts actually change.
+  const mainNavItems = useMemo(
+    () => createMainNavItems(pendingOrdersCount),
+    [pendingOrdersCount],
   );
-  const bottomNavItems = createBottomNavItems(unreadNotifications);
+  const bottomNavItems = useMemo(
+    () => createBottomNavItems(unreadNotifications),
+    [unreadNotifications],
+  );
 
   const ownerName = user?.fullName || (isAr ? "صاحب المتجر" : "Store Owner");
   const ownerInitial = ownerName?.charAt(0) || "م";
 
-  // Detect mobile
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 1024);
@@ -319,22 +348,99 @@ const Sidebar: React.FC<SidebarProps> = ({
     };
   }, [mobileOpen]);
 
-  const getLabel = (item: NavItem) => (isAr ? item.labelAr : item.labelEn);
+  const getLabel = useCallback(
+    (item: NavItem) => (isAr ? item.labelAr : item.labelEn),
+    [isAr],
+  );
 
-  const handleLogoClick = () => {
-    if (isMobile) {
-      setMobileOpen(false);
-    } else {
-      setCollapsed(!collapsed);
-    }
-  };
+  const handleLogoClick = useCallback(() => {
+    if (isMobile) setMobileOpen(false);
+    else setCollapsed(!collapsed);
+  }, [isMobile, collapsed, setMobileOpen, setCollapsed]);
 
-  // Helper to determine indicator color based on nav item
-  const getIndicatorColor = (to: string): string => {
+  const getIndicatorColor = useCallback((to: string): string => {
     if (to === "/dashboard/orders") return "bg-warning-500";
     if (to === "/dashboard/notifications") return "bg-error-500";
     if (to === "/dashboard/support") return "bg-primary-500";
     return "bg-primary-500";
+  }, []);
+
+  const renderNavItem = (item: NavItem) => {
+    const indicatorColor = getIndicatorColor(item.to);
+    const hasBadge = item.badge !== undefined && item.badge > 0;
+
+    return (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        end={item.end}
+        className={({ isActive }) =>
+          cn(
+            "flex items-center rounded-xl text-sm font-medium transition-all duration-200 group relative",
+            !(collapsed && !mobileOpen) && "gap-3 px-3 py-2.5 w-full",
+            collapsed &&
+              !mobileOpen &&
+              "lg:w-12 lg:h-12 lg:p-0 lg:justify-center lg:mx-auto",
+            isActive
+              ? "bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 shadow-sm"
+              : "text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800/50 hover:text-surface-900 dark:hover:text-surface-200",
+          )
+        }
+        title={collapsed && !mobileOpen ? getLabel(item) : undefined}
+      >
+        {({ isActive }) => (
+          <>
+            {isActive && (
+              <span
+                className={cn(
+                  "absolute top-1/2 -translate-y-1/2 w-1 h-6 rounded-full bg-primary-600 dark:bg-primary-400 animate-scale-in",
+                  isAr ? "right-0 rounded-l-full" : "left-0 rounded-r-full",
+                  collapsed &&
+                    !mobileOpen &&
+                    (isAr ? "lg:-right-3" : "lg:-left-3"),
+                )}
+                aria-hidden="true"
+              />
+            )}
+            <span
+              className="absolute inset-0 rounded-xl bg-primary-500/0 group-hover:bg-primary-500/5 dark:group-hover:bg-primary-400/5 transition-colors duration-300"
+              aria-hidden="true"
+            />
+            <span className="relative z-10 flex-shrink-0">{item.icon}</span>
+            <span
+              className={cn(
+                "truncate relative z-10 transition-all",
+                collapsed && !mobileOpen ? "lg:hidden" : "flex-1",
+              )}
+            >
+              {getLabel(item)}
+            </span>
+            {hasBadge && (
+              <span
+                className={cn(
+                  "inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full relative z-10",
+                  isActive
+                    ? "bg-primary-200 dark:bg-primary-800 text-primary-700 dark:text-primary-300"
+                    : "bg-surface-200 dark:bg-surface-700 text-surface-600 dark:text-surface-300",
+                  collapsed && !mobileOpen && "lg:hidden",
+                )}
+              >
+                {item.badge! > 99 ? "99+" : item.badge}
+              </span>
+            )}
+            {hasBadge && collapsed && !mobileOpen && (
+              <span
+                className={cn(
+                  "hidden lg:block absolute top-2.5 end-2.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-surface-900 shadow-sm",
+                  indicatorColor,
+                )}
+                aria-hidden="true"
+              />
+            )}
+          </>
+        )}
+      </NavLink>
+    );
   };
 
   return (
@@ -469,87 +575,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           >
             {isAr ? "الرئيسية" : "Main"}
           </p>
-          {mainNavItems.map((item) => {
-            const indicatorColor = getIndicatorColor(item.to);
-            const hasBadge = item.badge !== undefined && item.badge > 0;
-
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center rounded-xl text-sm font-medium transition-all duration-200 group relative",
-                    !(collapsed && !mobileOpen) && "gap-3 px-3 py-2.5 w-full",
-                    collapsed &&
-                      !mobileOpen &&
-                      "lg:w-12 lg:h-12 lg:p-0 lg:justify-center lg:mx-auto",
-                    isActive
-                      ? "bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 shadow-sm"
-                      : "text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800/50 hover:text-surface-900 dark:hover:text-surface-200",
-                  )
-                }
-                title={collapsed && !mobileOpen ? getLabel(item) : undefined}
-              >
-                {({ isActive }) => (
-                  <>
-                    {isActive && (
-                      <span
-                        className={cn(
-                          "absolute top-1/2 -translate-y-1/2 w-1 h-6 rounded-full bg-primary-600 dark:bg-primary-400 animate-scale-in",
-                          isAr
-                            ? "right-0 rounded-l-full"
-                            : "left-0 rounded-r-full",
-                          collapsed &&
-                            !mobileOpen &&
-                            (isAr ? "lg:-right-3" : "lg:-left-3"),
-                        )}
-                        aria-hidden="true"
-                      />
-                    )}
-                    <span
-                      className="absolute inset-0 rounded-xl bg-primary-500/0 group-hover:bg-primary-500/5 dark:group-hover:bg-primary-400/5 transition-colors duration-300"
-                      aria-hidden="true"
-                    />
-                    <span className="relative z-10 flex-shrink-0">
-                      {item.icon}
-                    </span>
-                    <span
-                      className={cn(
-                        "truncate relative z-10 transition-all",
-                        collapsed && !mobileOpen ? "lg:hidden" : "flex-1",
-                      )}
-                    >
-                      {getLabel(item)}
-                    </span>
-                    {hasBadge && (
-                      <span
-                        className={cn(
-                          "inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full relative z-10",
-                          isActive
-                            ? "bg-primary-200 dark:bg-primary-800 text-primary-700 dark:text-primary-300"
-                            : "bg-surface-200 dark:bg-surface-700 text-surface-600 dark:text-surface-300",
-                          collapsed && !mobileOpen && "lg:hidden",
-                        )}
-                      >
-                        {item.badge! > 99 ? "99+" : item.badge}
-                      </span>
-                    )}
-                    {hasBadge && collapsed && !mobileOpen && (
-                      <span
-                        className={cn(
-                          "hidden lg:block absolute top-2.5 end-2.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-surface-900 shadow-sm",
-                          indicatorColor,
-                        )}
-                        aria-hidden="true"
-                      />
-                    )}
-                  </>
-                )}
-              </NavLink>
-            );
-          })}
+          {mainNavItems.map(renderNavItem)}
 
           {!(collapsed && !mobileOpen) && (
             <div className="my-3 border-t border-surface-200 dark:border-surface-700" />
@@ -562,87 +588,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           >
             {isAr ? "أخرى" : "Other"}
           </p>
-          {bottomNavItems.map((item) => {
-            const indicatorColor = getIndicatorColor(item.to);
-            const hasBadge = item.badge !== undefined && item.badge > 0;
-
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center rounded-xl text-sm font-medium transition-all duration-200 group relative",
-                    !(collapsed && !mobileOpen) && "gap-3 px-3 py-2.5 w-full",
-                    collapsed &&
-                      !mobileOpen &&
-                      "lg:w-12 lg:h-12 lg:p-0 lg:justify-center lg:mx-auto",
-                    isActive
-                      ? "bg-primary-50 dark:bg-primary-950/40 text-primary-700 dark:text-primary-300 shadow-sm"
-                      : "text-surface-600 dark:text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800/50 hover:text-surface-900 dark:hover:text-surface-200",
-                  )
-                }
-                title={collapsed && !mobileOpen ? getLabel(item) : undefined}
-              >
-                {({ isActive }) => (
-                  <>
-                    {isActive && (
-                      <span
-                        className={cn(
-                          "absolute top-1/2 -translate-y-1/2 w-1 h-6 rounded-full bg-primary-600 dark:bg-primary-400 animate-scale-in",
-                          isAr
-                            ? "right-0 rounded-l-full"
-                            : "left-0 rounded-r-full",
-                          collapsed &&
-                            !mobileOpen &&
-                            (isAr ? "lg:-right-3" : "lg:-left-3"),
-                        )}
-                        aria-hidden="true"
-                      />
-                    )}
-                    <span
-                      className="absolute inset-0 rounded-xl bg-primary-500/0 group-hover:bg-primary-500/5 dark:group-hover:bg-primary-400/5 transition-colors duration-300"
-                      aria-hidden="true"
-                    />
-                    <span className="relative z-10 flex-shrink-0">
-                      {item.icon}
-                    </span>
-                    <span
-                      className={cn(
-                        "truncate relative z-10 transition-all",
-                        collapsed && !mobileOpen ? "lg:hidden" : "flex-1",
-                      )}
-                    >
-                      {getLabel(item)}
-                    </span>
-                    {hasBadge && (
-                      <span
-                        className={cn(
-                          "inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10px] font-bold rounded-full relative z-10",
-                          isActive
-                            ? "bg-primary-200 dark:bg-primary-800 text-primary-700 dark:text-primary-300"
-                            : "bg-surface-200 dark:bg-surface-700 text-surface-600 dark:text-surface-300",
-                          collapsed && !mobileOpen && "lg:hidden",
-                        )}
-                      >
-                        {item.badge! > 99 ? "99+" : item.badge}
-                      </span>
-                    )}
-                    {hasBadge && collapsed && !mobileOpen && (
-                      <span
-                        className={cn(
-                          "hidden lg:block absolute top-2.5 end-2.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-surface-900 shadow-sm",
-                          indicatorColor,
-                        )}
-                        aria-hidden="true"
-                      />
-                    )}
-                  </>
-                )}
-              </NavLink>
-            );
-          })}
+          {bottomNavItems.map(renderNavItem)}
         </nav>
 
         {/* User Footer Section */}
@@ -704,56 +650,54 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
-  const [searchSuggestions, setSearchSuggestions] = useState<
-    Array<{ label: string; labelAr: string; path: string }>
-  >([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
 
-  const { data: notificationsResponse } = useNotifications(1, 5);
+  const { data: notificationsPage } = useNotifications(1, 5);
   const { data: unreadData } = useUnreadCount();
   const markAsRead = useMarkAsRead();
-  const notifications = notificationsResponse?.notifications ?? [];
-  const unreadCount = unreadData ?? 0;
 
-  const searchableRoutes = [
-    { label: "Dashboard", labelAr: "لوحة التحكم", path: "/dashboard" },
-    { label: "Orders", labelAr: "الطلبات", path: "/dashboard/orders" },
-    {
-      label: "Categories",
-      labelAr: "التصنيفات",
-      path: "/dashboard/categories",
-    },
-    { label: "Menu", labelAr: "القائمة", path: "/dashboard/menu" },
-    { label: "Offers", labelAr: "العروض", path: "/dashboard/offers" },
-    { label: "Coupons", labelAr: "الكوبونات", path: "/dashboard/coupons" },
-    { label: "Wallet", labelAr: "المحفظة", path: "/dashboard/wallet" },
-    {
-      label: "Notifications",
-      labelAr: "الإشعارات",
-      path: "/dashboard/notifications",
-    },
-    { label: "Reports", labelAr: "التقارير", path: "/dashboard/reports" },
-    { label: "Settings", labelAr: "الإعدادات", path: "/dashboard/settings" },
-  ];
+  const notifications: NotificationSummaryDto[] =
+    notificationsPage?.items ?? [];
+  const unreadCount = unreadData?.total ?? 0;
+
+  const searchableRoutes = useMemo(
+    () => [
+      { label: "Dashboard", labelAr: "لوحة التحكم", path: "/dashboard" },
+      { label: "Orders", labelAr: "الطلبات", path: "/dashboard/orders" },
+      {
+        label: "Categories",
+        labelAr: "التصنيفات",
+        path: "/dashboard/categories",
+      },
+      { label: "Menu", labelAr: "القائمة", path: "/dashboard/menu" },
+      { label: "Offers", labelAr: "العروض", path: "/dashboard/offers" },
+      { label: "Coupons", labelAr: "الكوبونات", path: "/dashboard/coupons" },
+      { label: "Wallet", labelAr: "المحفظة", path: "/dashboard/wallet" },
+      {
+        label: "Notifications",
+        labelAr: "الإشعارات",
+        path: "/dashboard/notifications",
+      },
+      { label: "Reports", labelAr: "التقارير", path: "/dashboard/reports" },
+      { label: "Settings", labelAr: "الإعدادات", path: "/dashboard/settings" },
+    ],
+    [],
+  );
+
+  const searchSuggestions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return searchableRoutes.filter(
+      (route) =>
+        route.label.toLowerCase().includes(q) || route.labelAr.includes(q),
+    );
+  }, [searchQuery, searchableRoutes]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const query = e.target.value;
-    setSearchQuery(query);
-
-    if (query.trim().length > 0) {
-      const filtered = searchableRoutes.filter(
-        (route) =>
-          route.label.toLowerCase().includes(query.toLowerCase()) ||
-          route.labelAr.includes(query),
-      );
-      setSearchSuggestions(filtered);
-      setShowSuggestions(true);
-    } else {
-      setSearchSuggestions([]);
-      setShowSuggestions(false);
-    }
+    setSearchQuery(e.target.value);
+    setShowSuggestions(e.target.value.trim().length > 0);
   };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -810,12 +754,8 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
   }, []);
 
   const handleLogout = async () => {
-    // Clear all cached data before logging out
     try {
-      // Clear all localStorage data related to the app
       localStorage.removeItem("store-sidebar-collapsed");
-
-      // Clear any other app-specific storage
       const keysToRemove = Object.keys(localStorage).filter(
         (key) =>
           key.startsWith("tamam") ||
@@ -824,17 +764,21 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
           key.includes("query"),
       );
       keysToRemove.forEach((key) => localStorage.removeItem(key));
-
-      // Clear sessionStorage
       sessionStorage.clear();
     } catch (error) {
       console.warn("Error clearing storage:", error);
     }
 
-    // Perform logout
     logout();
     toast.success(isAr ? "تم تسجيل الخروج بنجاح" : "Logged out successfully");
     navigate("/auth/login");
+  };
+
+  const handleNotificationClick = (n: NotificationSummaryDto) => {
+    if (!n.isRead) markAsRead.mutate(n.id);
+    const target = buildNotificationLink(n);
+    if (target) navigate(target);
+    setNotificationsOpen(false);
   };
 
   return (
@@ -894,9 +838,7 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
               onChange={handleSearchChange}
               onFocus={() => {
                 setSearchFocused(true);
-                if (searchQuery.trim().length > 0) {
-                  setShowSuggestions(true);
-                }
+                if (searchQuery.trim().length > 0) setShowSuggestions(true);
               }}
               onBlur={() => {
                 setTimeout(() => {
@@ -1088,9 +1030,7 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
                   "sm:rounded-2xl",
                   isAr ? "sm:left-0" : "sm:right-0",
                 )}
-                style={{
-                  maxHeight: "calc(100vh - 5rem)",
-                }}
+                style={{ maxHeight: "calc(100vh - 5rem)" }}
               >
                 <div className="px-4 py-3 border-b border-surface-200/50 dark:border-surface-800/50 flex justify-between items-center sticky top-0 bg-surface-50/95 dark:bg-surface-950/95 backdrop-blur-xl z-10">
                   <div className="flex items-center gap-2">
@@ -1159,11 +1099,7 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
                       {notifications.slice(0, 5).map((n) => (
                         <button
                           key={n.id}
-                          onClick={() => {
-                            if (!n.isRead) markAsRead.mutate(n.id);
-                            if (n.link) navigate(n.link);
-                            setNotificationsOpen(false);
-                          }}
+                          onClick={() => handleNotificationClick(n)}
                           className={cn(
                             "w-full text-start px-4 py-3 flex items-start gap-3 transition-colors",
                             "hover:bg-surface-50 dark:hover:bg-surface-800/30",
@@ -1356,7 +1292,6 @@ const StoreTypeSelectionModal: React.FC<{
     useAvailableStoreTypes();
   const addStoreType = useAddStoreType();
   const [selectedTypeId, setSelectedTypeId] = useState<string>("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
@@ -1369,17 +1304,14 @@ const StoreTypeSelectionModal: React.FC<{
       return;
     }
 
-    setIsSubmitting(true);
     try {
       await addStoreType.mutateAsync(selectedTypeId);
       toast.success(
         isAr ? "تم إضافة نوع المتجر بنجاح" : "Store type added successfully",
       );
       onComplete();
-    } catch (error) {
+    } catch {
       toast.error(isAr ? "فشل إضافة نوع المتجر" : "Failed to add store type");
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -1389,7 +1321,6 @@ const StoreTypeSelectionModal: React.FC<{
         className="w-full max-w-md rounded-2xl overflow-hidden animate-fade-in-scale bg-white dark:bg-surface-900 border border-surface-200 dark:border-surface-800 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header with Close Button */}
         <div className="px-6 py-5 border-b border-surface-200 dark:border-surface-800 bg-gradient-to-r from-primary-50 to-primary-100/50 dark:from-primary-950/30 dark:to-primary-900/20">
           <div className="flex items-start gap-3">
             <div className="w-12 h-12 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center flex-shrink-0">
@@ -1497,11 +1428,6 @@ const StoreTypeSelectionModal: React.FC<{
                           ? type.nameAr || type.nameEn
                           : type.nameEn || type.nameAr}
                       </p>
-                      {type.descriptionAr && (
-                        <p className="text-xs text-surface-500 dark:text-surface-400">
-                          {isAr ? type.descriptionAr : type.descriptionEn}
-                        </p>
-                      )}
                     </div>
                     {selectedTypeId === type.id && (
                       <svg
@@ -1528,14 +1454,16 @@ const StoreTypeSelectionModal: React.FC<{
             <button
               type="button"
               onClick={onClose}
-              disabled={isSubmitting}
+              disabled={addStoreType.isPending}
               className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold bg-surface-100 dark:bg-surface-800 text-surface-700 dark:text-surface-300 hover:bg-surface-200 dark:hover:bg-surface-700 active:scale-[0.98] transition-all duration-200 disabled:opacity-50"
             >
               {isAr ? "إلغاء" : "Cancel"}
             </button>
             <button
               type="submit"
-              disabled={!selectedTypeId || isSubmitting || typesLoading}
+              disabled={
+                !selectedTypeId || addStoreType.isPending || typesLoading
+              }
               className={cn(
                 "flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200",
                 "bg-primary-600 text-white hover:bg-primary-700 active:scale-[0.98]",
@@ -1545,7 +1473,7 @@ const StoreTypeSelectionModal: React.FC<{
                 "flex items-center justify-center gap-2",
               )}
             >
-              {isSubmitting ? (
+              {addStoreType.isPending ? (
                 <>
                   <svg
                     className="w-4 h-4 animate-spin"
@@ -1599,7 +1527,7 @@ export const StoreLayout: React.FC = () => {
   });
 
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [pendingOrders, setPendingOrders] = useState<StoreOrderDto[]>([]);
+  const [pendingOrders, setPendingOrders] = useState<NormalizedOrder[]>([]);
   const [isNewOrderModalOpen, setIsNewOrderModalOpen] = useState(false);
   const [knownOrderIds, setKnownOrderIds] = useState<Set<string>>(new Set());
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -1608,15 +1536,12 @@ export const StoreLayout: React.FC = () => {
   const [showStoreTypeModal, setShowStoreTypeModal] = useState(false);
   const [hasCheckedStoreTypes, setHasCheckedStoreTypes] = useState(false);
 
-  // Fetch ALL orders
   const { data: allOrders = [], refetch: refetchOrders } = useStoreOrders();
   const { store, refreshStore, isOpen } = useStore();
 
-  // Check and show pending orders whenever the store is online
+  // ── Pending-order detection ─────────────────────────────────────────
   useEffect(() => {
-    // Only proceed if store is online and we have orders data
     if (!isOpen || !allOrders || allOrders.length === 0) {
-      // If store is closed, close the modal if open
       if (!isOpen && isNewOrderModalOpen) {
         setIsNewOrderModalOpen(false);
         setPendingOrders([]);
@@ -1624,11 +1549,11 @@ export const StoreLayout: React.FC = () => {
       return;
     }
 
+    // NormalizedOrder.status is lowercase
     const currentPendingOrders = allOrders.filter(
       (o) => o.status === "pending",
     );
 
-    // If there are no pending orders, close the modal if open
     if (currentPendingOrders.length === 0) {
       if (isNewOrderModalOpen) {
         setIsNewOrderModalOpen(false);
@@ -1637,15 +1562,12 @@ export const StoreLayout: React.FC = () => {
       return;
     }
 
-    // Get IDs of pending orders
     const currentPendingIds = new Set(currentPendingOrders.map((o) => o.id));
 
-    // On initial load, show modal if there are pending orders
     if (isInitialLoad) {
       setKnownOrderIds(currentPendingIds);
       setIsInitialLoad(false);
 
-      // Show modal for pending orders if not already shown
       if (!hasShownInitialModal && !isNewOrderModalOpen) {
         setPendingOrders(currentPendingOrders);
         setIsNewOrderModalOpen(true);
@@ -1654,12 +1576,10 @@ export const StoreLayout: React.FC = () => {
       return;
     }
 
-    // Find new orders not in knownOrderIds
     const newOrders = currentPendingOrders.filter(
       (o) => !knownOrderIds.has(o.id),
     );
 
-    // If there are new orders, add them to the queue
     if (newOrders.length > 0 && !isNewOrderModalOpen) {
       setPendingOrders((prev) => {
         const existingIds = new Set(prev.map((o) => o.id));
@@ -1669,7 +1589,6 @@ export const StoreLayout: React.FC = () => {
       setIsNewOrderModalOpen(true);
     }
 
-    // Update known IDs
     setKnownOrderIds(currentPendingIds);
   }, [
     allOrders,
@@ -1680,57 +1599,51 @@ export const StoreLayout: React.FC = () => {
     hasShownInitialModal,
   ]);
 
-  // Poll for new orders every 5 seconds (only when store is online)
+  // ── Poll every 5s when store is open ────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
-
     const interval = setInterval(() => {
       refetchOrders();
     }, 5000);
     return () => clearInterval(interval);
   }, [isOpen, refetchOrders]);
 
-  // When store comes online, check for pending orders
+  // ── Reset pending queue when store comes online ─────────────────────
   useEffect(() => {
     if (isOpen) {
-      // Reset initial load flag to re-check pending orders when store comes online
       setIsInitialLoad(true);
       setHasShownInitialModal(false);
       refetchOrders();
     } else {
-      // Store is closed - close the modal
       setIsNewOrderModalOpen(false);
       setPendingOrders([]);
     }
   }, [isOpen, refetchOrders]);
 
-  useEffect(() => {
-    if (store && !hasCheckedStoreTypes) {
-      const approvedTypes = (store as any)?.approvedTypes;
-      const pendingTypes = (store as any)?.pendingTypes;
-
-      const hasApprovedTypes = approvedTypes && approvedTypes.length > 0;
-      const hasPendingTypes = pendingTypes && pendingTypes.length > 0;
-
-      if (!hasApprovedTypes && !hasPendingTypes) {
-        setShowStoreTypeModal(true);
-      }
-      setHasCheckedStoreTypes(true);
-    }
-  }, [store, hasCheckedStoreTypes]);
+  // ── Store-type onboarding check ────────────────────────────────────
+  // Runs once per session, and again whenever we complete the modal.
+  const hasAnyType = useMemo(() => {
+    if (!store) return false;
+    return (
+      (store.approvedTypes?.length ?? 0) > 0 ||
+      (store.pendingTypes?.length ?? 0) > 0
+    );
+  }, [store]);
 
   useEffect(() => {
-    if (store && showStoreTypeModal) {
-      const approvedTypes = (store as any)?.approvedTypes;
-      const pendingTypes = (store as any)?.pendingTypes;
-      const hasApprovedTypes = approvedTypes && approvedTypes.length > 0;
-      const hasPendingTypes = pendingTypes && pendingTypes.length > 0;
-
-      if (hasApprovedTypes || hasPendingTypes) {
-        setShowStoreTypeModal(false);
-      }
+    if (!store || hasCheckedStoreTypes) return;
+    if (!hasAnyType) {
+      setShowStoreTypeModal(true);
     }
-  }, [store, showStoreTypeModal]);
+    setHasCheckedStoreTypes(true);
+  }, [store, hasAnyType, hasCheckedStoreTypes]);
+
+  // Close the modal automatically once the store gains a type.
+  useEffect(() => {
+    if (showStoreTypeModal && hasAnyType) {
+      setShowStoreTypeModal(false);
+    }
+  }, [showStoreTypeModal, hasAnyType]);
 
   const handleCloseNewOrderModal = () => {
     setIsNewOrderModalOpen(false);
@@ -1740,23 +1653,18 @@ export const StoreLayout: React.FC = () => {
 
   const handleStoreTypeComplete = () => {
     setShowStoreTypeModal(false);
-    if (refreshStore) {
-      refreshStore();
-    }
+    if (refreshStore) refreshStore();
     setHasCheckedStoreTypes(false);
-    setTimeout(() => {
-      setHasCheckedStoreTypes(true);
-    }, 500);
+    setTimeout(() => setHasCheckedStoreTypes(true), 500);
   };
 
-  // ============================================
-  // Existing Layout Logic
-  // ============================================
-
+  // ── Sidebar collapse persistence ────────────────────────────────────
   useEffect(() => {
     try {
       localStorage.setItem("store-sidebar-collapsed", String(collapsed));
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }, [collapsed]);
 
   useEffect(() => {
@@ -1819,23 +1727,18 @@ export const StoreLayout: React.FC = () => {
         </main>
       </div>
 
-      {/* Show New Order Modal for pending orders when store is online */}
       {isNewOrderModalOpen && pendingOrders.length > 0 && isOpen && (
         <NewOrderModal
           orders={pendingOrders}
           onClose={handleCloseNewOrderModal}
           onOrderProcessed={(orderId) => {
-            // Remove the processed order from the queue
             setPendingOrders((prev) => prev.filter((o) => o.id !== orderId));
-            // Add to knownOrderIds so it won't be re-added on next poll
             setKnownOrderIds((prev) => new Set(prev).add(orderId));
-            // Refetch orders to update status
             refetchOrders();
           }}
         />
       )}
 
-      {/* Store Type Selection Modal */}
       {showStoreTypeModal && (
         <StoreTypeSelectionModal
           isOpen={showStoreTypeModal}

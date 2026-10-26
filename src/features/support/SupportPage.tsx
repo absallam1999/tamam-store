@@ -8,9 +8,12 @@ import {
   useSendMessage,
   useCreateTicket,
   useTicketMessages,
+  useMarkTicketRead,
+  useCloseTicket,
 } from "@shared/hooks/useStoreSupport";
 import { useStoreOrders } from "@shared/hooks/useStoreOrders";
-import type { SupportTicketDto, SupportMessageDto } from "@shared/types";
+import { storeApi } from "@/config/store.api";
+import type { MessageDto } from "@shared/types";
 
 // ============================================================
 // Translations
@@ -37,16 +40,14 @@ const t = {
     ar: "اكتب رسالتك هنا...",
     en: "Type your message here...",
   },
-  priority: { ar: "الأولوية", en: "Priority" },
-  low: { ar: "منخفضة", en: "Low" },
-  medium: { ar: "متوسطة", en: "Medium" },
-  high: { ar: "عالية", en: "High" },
-  urgent: { ar: "عاجلة", en: "Urgent" },
   status: { ar: "الحالة", en: "Status" },
   open: { ar: "مفتوح", en: "Open" },
-  inProgress: { ar: "قيد المعالجة", en: "In Progress" },
-  resolved: { ar: "تم الحل", en: "Resolved" },
   closed: { ar: "مغلق", en: "Closed" },
+  closeTicket: { ar: "إغلاق التذكرة", en: "Close Ticket" },
+  closeConfirm: {
+    ar: "هل تريد إغلاق هذه التذكرة؟",
+    en: "Close this ticket?",
+  },
   send: { ar: "إرسال", en: "Send" },
   sending: { ar: "جاري الإرسال...", en: "Sending..." },
   cancel: { ar: "إلغاء", en: "Cancel" },
@@ -54,7 +55,6 @@ const t = {
   creating: { ar: "جاري الإنشاء...", en: "Creating..." },
   typeMessage: { ar: "اكتب رسالتك...", en: "Type your message..." },
   online: { ar: "متصل", en: "Online" },
-  offline: { ar: "غير متصل", en: "Offline" },
   supportTeam: { ar: "فريق الدعم", en: "Support Team" },
   selectTicket: { ar: "اختر تذكرة", en: "Select a ticket" },
   selectTicketDesc: {
@@ -62,41 +62,31 @@ const t = {
     en: "Select a ticket from the list to view the conversation",
   },
   noMessages: { ar: "لا توجد رسائل", en: "No messages yet" },
-  noMessagesDesc: {
+  startConversation: {
     ar: "ابدأ المحادثة بإرسال رسالة",
     en: "Start the conversation by sending a message",
   },
   attachFile: { ar: "إرفاق ملف", en: "Attach File" },
   maxFileSize: { ar: "الحد الأقصى 5MB", en: "Max 5MB" },
-  support: { ar: "الدعم الفني", en: "Support" },
   back: { ar: "رجوع", en: "Back" },
-  replied: { ar: "تم الرد", en: "Replied" },
-  awaitingReply: { ar: "في انتظار الرد", en: "Awaiting reply" },
   loadMessages: { ar: "جارٍ تحميل الرسائل...", en: "Loading messages..." },
-  noMessagesYet: { ar: "لا توجد رسائل بعد", en: "No messages yet" },
-  startConversation: {
-    ar: "ابدأ المحادثة بإرسال رسالة",
-    en: "Start the conversation by sending a message",
-  },
-  ticketInfo: { ar: "معلومات التذكرة", en: "Ticket Info" },
   created: { ar: "تم الإنشاء", en: "Created" },
-  order: { ar: "الطلب", en: "Order" },
-  noOrder: { ar: "بدون طلب", en: "No order" },
+  optionalOrder: { ar: "مرتبط بطلب (اختياري)", en: "Related Order (Optional)" },
+  noOrder: { ar: "بدون طلب (تذكرة عامة)", en: "No order (General ticket)" },
+  fileUploadError: { ar: "فشل إرفاق الملف", en: "Failed to attach file" },
+  fileTooLarge: {
+    ar: "حجم الملف يجب أن يكون أقل من 5MB",
+    en: "File size must be less than 5MB",
+  },
+  ticketClosed: { ar: "تم إغلاق التذكرة", en: "Ticket closed" },
+  closeError: { ar: "فشل إغلاق التذكرة", en: "Failed to close ticket" },
 } as const;
 
 const lang = (key: keyof typeof t, isAr: boolean) =>
   isAr ? t[key].ar : t[key].en;
 
 // ============================================================
-// Types
-// ============================================================
-
-interface Ticket extends SupportTicketDto {
-  messages?: SupportMessageDto[];
-}
-
-// ============================================================
-// Skeleton Loader
+// Skeleton Loader (unchanged)
 // ============================================================
 
 const SkeletonLoader: React.FC<{ isAr: boolean }> = ({ isAr }) => {
@@ -104,7 +94,6 @@ const SkeletonLoader: React.FC<{ isAr: boolean }> = ({ isAr }) => {
 
   return (
     <div className="h-[calc(100dvh-80px)] flex flex-col bg-white dark:bg-surface-900 rounded-2xl overflow-hidden border border-surface-200 dark:border-surface-800">
-      {/* Header Skeleton */}
       <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-surface-200 dark:border-surface-800 bg-surface-50/50 dark:bg-surface-900/50">
         <div className="space-y-2">
           <div className="skeleton h-6 w-32 rounded-lg" />
@@ -113,9 +102,7 @@ const SkeletonLoader: React.FC<{ isAr: boolean }> = ({ isAr }) => {
         <div className="skeleton h-10 w-28 sm:w-36 rounded-xl" />
       </div>
 
-      {/* Main Content Skeleton */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Ticket List Skeleton (hidden on mobile if no selection) */}
         <div className="hidden md:flex w-80 flex-col border-l border-surface-200 dark:border-surface-800 bg-surface-50/30 dark:bg-surface-900/30 p-4">
           <div className="flex items-center justify-between mb-4">
             <div className="skeleton h-4 w-28 rounded-lg" />
@@ -139,7 +126,6 @@ const SkeletonLoader: React.FC<{ isAr: boolean }> = ({ isAr }) => {
           </div>
         </div>
 
-        {/* Chat Area Skeleton */}
         <div className="flex-1 flex flex-col bg-white dark:bg-surface-900">
           <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-surface-200 dark:border-surface-800 bg-surface-50/30 dark:bg-surface-900/30">
             <div className="flex items-center gap-3">
@@ -185,88 +171,7 @@ const SkeletonLoader: React.FC<{ isAr: boolean }> = ({ isAr }) => {
 };
 
 // ============================================================
-// Priority Badge
-// ============================================================
-
-const PriorityBadge: React.FC<{ priority: string; isAr: boolean }> = ({
-  priority,
-  isAr,
-}) => {
-  const config: Record<
-    string,
-    { bg: string; label: string; icon: React.ReactNode }
-  > = {
-    Low: {
-      bg: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20",
-      label: lang("low", isAr),
-      icon: (
-        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v4a1 1 0 102 0V7zm-1 7a1 1 0 100-2 1 1 0 000 2z"
-            clipRule="evenodd"
-          />
-        </svg>
-      ),
-    },
-    Medium: {
-      bg: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20",
-      label: lang("medium", isAr),
-      icon: (
-        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v4a1 1 0 102 0V7zm-1 7a1 1 0 100-2 1 1 0 000 2z"
-            clipRule="evenodd"
-          />
-        </svg>
-      ),
-    },
-    High: {
-      bg: "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20",
-      label: lang("high", isAr),
-      icon: (
-        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v4a1 1 0 102 0V7zm-1 7a1 1 0 100-2 1 1 0 000 2z"
-            clipRule="evenodd"
-          />
-        </svg>
-      ),
-    },
-    Urgent: {
-      bg: "bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/20",
-      label: lang("urgent", isAr),
-      icon: (
-        <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v4a1 1 0 102 0V7zm-1 7a1 1 0 100-2 1 1 0 000 2z"
-            clipRule="evenodd"
-          />
-        </svg>
-      ),
-    },
-  };
-
-  const c = config[priority] || config.Medium;
-
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border",
-        c.bg,
-      )}
-    >
-      {c.icon}
-      {c.label}
-    </span>
-  );
-};
-
-// ============================================================
-// Status Badge
+// Status Badge — only Open / Closed exist on ChatStatus
 // ============================================================
 
 const StatusBadge: React.FC<{ status: string; isAr: boolean }> = ({
@@ -278,16 +183,6 @@ const StatusBadge: React.FC<{ status: string; isAr: boolean }> = ({
       bg: "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/20",
       dot: "bg-blue-500",
       label: lang("open", isAr),
-    },
-    InProgress: {
-      bg: "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20",
-      dot: "bg-amber-500",
-      label: lang("inProgress", isAr),
-    },
-    Resolved: {
-      bg: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20",
-      dot: "bg-emerald-500",
-      label: lang("resolved", isAr),
     },
     Closed: {
       bg: "bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-400 border-surface-200 dark:border-surface-700",
@@ -312,60 +207,93 @@ const StatusBadge: React.FC<{ status: string; isAr: boolean }> = ({
 };
 
 // ============================================================
-// Message Bubble
+// Message Bubble — senderType + attachment support
 // ============================================================
 
 const MessageBubble: React.FC<{
-  message: SupportMessageDto;
+  message: MessageDto;
   isOwn: boolean;
   isAr: boolean;
 }> = ({ message, isOwn, isAr }) => {
-  const isRTL = isAr;
-
   return (
     <div
       className={cn(
-        "flex items-end gap-3 animate-fade-in",
-        isOwn
-          ? isRTL
-            ? "flex-row-reverse"
-            : "flex-row"
-          : isRTL
-            ? "flex-row"
-            : "flex-row-reverse",
+        "flex items-end gap-3 animate-fade-in max-w-full w-fit",
+        isOwn ? "me-auto flex-row" : "ms-auto flex-row-reverse",
       )}
     >
+      {/* Avatar */}
       <div
         className={cn(
-          "w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold",
+          "w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold overflow-hidden",
           isOwn
             ? "bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/20"
             : "bg-gradient-to-br from-surface-200 to-surface-300 dark:from-surface-700 dark:to-surface-600 text-surface-700 dark:text-surface-300",
         )}
       >
-        {isOwn ? "م" : "د"}
+        {message.senderProfilePictureUrl ? (
+          <img
+            src={message.senderProfilePictureUrl}
+            alt={message.senderName ?? ""}
+            className="w-full h-full object-cover"
+          />
+        ) : isOwn ? (
+          isAr ? "أ" : "Y"
+        ) : isAr ? (
+          "د"
+        ) : (
+          "S"
+        )}
       </div>
 
+      {/* Bubble */}
       <div
         className={cn(
-          "max-w-[70%] px-4 py-2.5 text-sm leading-relaxed shadow-sm",
+          "max-w-[70%] px-4 py-2.5 text-sm leading-relaxed shadow-sm rounded-2xl",
           isOwn
-            ? "bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-primary-500/20"
-            : "bg-white dark:bg-surface-800 text-surface-900 dark:text-white border border-surface-200 dark:border-surface-700",
-          "rounded-2xl",
-          isRTL && isOwn ? "rounded-tr-none" : "",
-          isRTL && !isOwn ? "rounded-tl-none" : "",
-          !isRTL && isOwn ? "rounded-tr-none" : "",
-          !isRTL && !isOwn ? "rounded-tl-none" : "",
+            ? "bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-primary-500/20 rounded-ss-none"
+            : "bg-white dark:bg-surface-800 text-surface-900 dark:text-white border border-surface-200 dark:border-surface-700 rounded-se-none",
         )}
       >
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
-        <div
-          className={cn(
-            "flex items-center gap-1.5 mt-1.5",
-            isRTL ? "justify-start" : "justify-end",
-          )}
-        >
+        {message.attachmentUrl && (
+          <a
+            href={message.attachmentUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className={cn(
+              "inline-flex items-center gap-1.5 text-xs font-medium underline mb-1",
+              isOwn ? "text-white/90" : "text-primary-600 dark:text-primary-400",
+            )}
+          >
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
+              />
+            </svg>
+            {message.messageType === "Image"
+              ? isAr
+                ? "صورة"
+                : "Image"
+              : isAr
+                ? "ملف مرفق"
+                : "Attachment"}
+          </a>
+        )}
+
+        {message.content && (
+          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        )}
+
+        {/* Timestamp + check — justify-end is already RTL-aware */}
+        <div className="flex items-center gap-1.5 mt-1.5 justify-end">
           <span
             className={cn(
               "text-[10px]",
@@ -410,37 +338,25 @@ export const SupportPage: React.FC = () => {
   const [showNewTicket, setShowNewTicket] = useState(false);
   const [newTicketSubject, setNewTicketSubject] = useState("");
   const [newTicketMessage, setNewTicketMessage] = useState("");
-  const [newTicketPriority, setNewTicketPriority] = useState<string>("Medium");
-  const [isCreating, setIsCreating] = useState(false);
-  const [isSending, setIsSending] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const {
-    data: tickets,
-    isLoading: ticketsLoading,
-    refetch: refetchTickets,
-  } = useSupportTickets();
-  const {
-    data: messages = [],
-    refetch: refetchMessages,
-    isLoading: messagesLoading,
-  } = useTicketMessages(selectedTicketId || "");
+  const { data: tickets = [], isLoading: ticketsLoading } = useSupportTickets();
+  const { data: messages = [], isLoading: messagesLoading } = useTicketMessages(
+    selectedTicketId ?? "",
+  );
   const sendMessage = useSendMessage();
   const createTicket = useCreateTicket();
+  const markRead = useMarkTicketRead();
+  const closeTicket = useCloseTicket();
   const { data: recentOrders = [] } = useStoreOrders();
 
-  const selectedTicket = (tickets as Ticket[])?.find(
-    (t) => t.id === selectedTicketId,
-  );
+  const selectedTicket = tickets.find((t) => t.id === selectedTicketId);
 
-  useEffect(() => {
-    if (selectedTicketId) refetchMessages();
-  }, [selectedTicketId, refetchMessages]);
-
+  // Auto-scroll on new messages
   useEffect(() => {
     if (messagesEndRef.current) {
       setTimeout(
@@ -450,9 +366,16 @@ export const SupportPage: React.FC = () => {
     }
   }, [messages]);
 
+  // Mark read whenever a ticket is opened
+  useEffect(() => {
+    if (selectedTicketId) {
+      markRead.mutate(selectedTicketId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTicketId]);
+
   const handleSendMessage = useCallback(async () => {
-    if (!newMessage.trim() || !selectedTicketId || isSending) return;
-    setIsSending(true);
+    if (!newMessage.trim() || !selectedTicketId || sendMessage.isPending) return;
     try {
       await sendMessage.mutateAsync({
         ticketId: selectedTicketId,
@@ -460,43 +383,29 @@ export const SupportPage: React.FC = () => {
       });
       setNewMessage("");
       textareaRef.current?.focus();
-      await refetchMessages();
-      await refetchTickets();
     } catch {
       toast.error(isAr ? "فشل إرسال الرسالة" : "Failed to send message");
-    } finally {
-      setIsSending(false);
     }
-  }, [
-    newMessage,
-    selectedTicketId,
-    isSending,
-    sendMessage,
-    refetchMessages,
-    refetchTickets,
-    isAr,
-    toast,
-  ]);
+  }, [newMessage, selectedTicketId, sendMessage, isAr, toast]);
 
   const handleCreateTicket = useCallback(async () => {
-    if (!newTicketSubject.trim() || !newTicketMessage.trim() || isCreating)
+    if (
+      !newTicketSubject.trim() ||
+      !newTicketMessage.trim() ||
+      createTicket.isPending
+    )
       return;
-    setIsCreating(true);
     try {
-      const ticket = await createTicket.mutateAsync({
+      const conversation = await createTicket.mutateAsync({
         subject: newTicketSubject.trim(),
         message: newTicketMessage.trim(),
-        priority: newTicketPriority,
-        orderId: selectedOrderId || null,
+        orderId: selectedOrderId || undefined,
       });
       setShowNewTicket(false);
       setNewTicketSubject("");
       setNewTicketMessage("");
-      setNewTicketPriority("Medium");
       setSelectedOrderId("");
-      setSelectedTicketId(ticket.id);
-      await refetchTickets();
-      await refetchMessages();
+      setSelectedTicketId(conversation.id);
       toast.success(
         isAr ? "تم إنشاء التذكرة بنجاح" : "Ticket created successfully",
       );
@@ -505,21 +414,51 @@ export const SupportPage: React.FC = () => {
         err?.message ||
           (isAr ? "فشل إنشاء التذكرة" : "Failed to create ticket"),
       );
-    } finally {
-      setIsCreating(false);
     }
   }, [
     newTicketSubject,
     newTicketMessage,
-    isCreating,
     createTicket,
-    newTicketPriority,
     selectedOrderId,
-    refetchTickets,
-    refetchMessages,
     isAr,
     toast,
   ]);
+
+  const handleCloseTicket = useCallback(async () => {
+    if (!selectedTicketId || closeTicket.isPending) return;
+    try {
+      await closeTicket.mutateAsync({ ticketId: selectedTicketId });
+      toast.success(lang("ticketClosed", isAr));
+    } catch {
+      toast.error(lang("closeError", isAr));
+    }
+  }, [selectedTicketId, closeTicket, isAr, toast]);
+
+  const handleFileSelect = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file || !selectedTicketId || sendMessage.isPending) return;
+
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error(lang("fileTooLarge", isAr));
+        return;
+      }
+
+      try {
+        const upload = await storeApi.files.upload(file, "general");
+        await sendMessage.mutateAsync({
+          ticketId: selectedTicketId,
+          content: file.name,
+          attachmentUrl: upload.url,
+          messageType: file.type.startsWith("image/") ? "Image" : "File",
+        });
+      } catch {
+        toast.error(lang("fileUploadError", isAr));
+      }
+    },
+    [selectedTicketId, sendMessage, isAr, toast],
+  );
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -531,6 +470,7 @@ export const SupportPage: React.FC = () => {
     [handleSendMessage],
   );
 
+  // Auto-size textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -610,16 +550,14 @@ export const SupportPage: React.FC = () => {
                 {lang("myTickets", isAr)}
               </span>
               <span className="text-xs font-medium text-surface-600 dark:text-surface-400 bg-surface-200 dark:bg-surface-800 px-2.5 py-0.5 rounded-full">
-                {tickets?.length || 0}
+                {tickets.length}
               </span>
             </div>
 
-            {tickets && tickets.length > 0 ? (
+            {tickets.length > 0 ? (
               <div className="space-y-2">
                 {tickets.map((ticket) => {
                   const isActive = ticket.id === selectedTicketId;
-                  const lastMessage =
-                    ticket.messages?.[ticket.messages.length - 1];
                   return (
                     <button
                       key={ticket.id}
@@ -634,26 +572,31 @@ export const SupportPage: React.FC = () => {
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">
-                            {ticket.subject}
-                          </p>
-                          {lastMessage && (
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-medium truncate">
+                              {ticket.subject ?? (isAr ? "تذكرة دعم" : "Support Ticket")}
+                            </p>
+                            {ticket.unreadCount > 0 && (
+                              <span className="flex-shrink-0 bg-primary-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                                {ticket.unreadCount}
+                              </span>
+                            )}
+                          </div>
+                          {ticket.lastMessagePreview && (
                             <p className="text-xs text-surface-500 dark:text-surface-400 truncate mt-1">
-                              {lastMessage.content}
+                              {ticket.lastMessagePreview}
                             </p>
                           )}
-                          {!lastMessage &&
-                            ticket.messages &&
-                            ticket.messages.length === 0 && (
-                              <p className="text-xs text-surface-400 dark:text-surface-500 mt-1 italic">
-                                {lang("noMessagesYet", isAr)}
-                              </p>
-                            )}
+                          {!ticket.lastMessagePreview && (
+                            <p className="text-xs text-surface-400 dark:text-surface-500 mt-1 italic">
+                              {lang("noMessages", isAr)}
+                            </p>
+                          )}
                         </div>
                         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                          <StatusBadge status={ticket.status} isAr={isAr} />
+                          <StatusBadge status={ticket.status ?? "Open"} isAr={isAr} />
                           <span className="text-[10px] text-surface-400">
-                            {formatTime(ticket.updatedAt)}
+                            {formatTime(ticket.lastMessageAt ?? ticket.createdAt)}
                           </span>
                         </div>
                       </div>
@@ -681,6 +624,9 @@ export const SupportPage: React.FC = () => {
                 <p className="text-sm font-medium text-surface-500 dark:text-surface-400">
                   {lang("noTickets", isAr)}
                 </p>
+                <p className="text-xs text-surface-400 dark:text-surface-500 mt-0.5">
+                  {lang("noTicketsDesc", isAr)}
+                </p>
                 <button
                   onClick={() => setShowNewTicket(true)}
                   className="mt-4 px-5 py-2.5 rounded-xl bg-primary-600 text-white text-sm font-medium hover:bg-primary-700 transition-colors shadow-lg shadow-primary-500/20"
@@ -701,7 +647,7 @@ export const SupportPage: React.FC = () => {
         >
           {selectedTicket ? (
             <>
-              {/* Chat Header with back button on mobile */}
+              {/* Chat Header */}
               <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-surface-200 dark:border-surface-800 bg-gradient-to-r from-surface-50/50 to-surface-100/30 dark:from-surface-900/50 dark:to-surface-800/30">
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                   <button
@@ -744,12 +690,12 @@ export const SupportPage: React.FC = () => {
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-surface-900 dark:text-white truncate">
-                      {selectedTicket.subject}
+                      {selectedTicket.subject ??
+                        (isAr ? "تذكرة دعم" : "Support Ticket")}
                     </p>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <StatusBadge status={selectedTicket.status} isAr={isAr} />
-                      <PriorityBadge
-                        priority={selectedTicket.priority}
+                      <StatusBadge
+                        status={selectedTicket.status ?? "Open"}
                         isAr={isAr}
                       />
                       <span className="text-[10px] text-surface-400 hidden sm:inline">
@@ -760,10 +706,32 @@ export const SupportPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
-                  <span className="flex items-center gap-1.5 text-xs text-surface-500 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-full">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    {lang("online", isAr)}
-                  </span>
+                  {selectedTicket.status === "Open" ? (
+                    <button
+                      onClick={handleCloseTicket}
+                      disabled={closeTicket.isPending}
+                      className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-500/20 hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                    >
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2.5}
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M6 18 18 6M6 6l12 12"
+                        />
+                      </svg>
+                      {lang("closeTicket", isAr)}
+                    </button>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-xs text-surface-500 bg-surface-100 dark:bg-surface-800 px-2.5 py-1 rounded-full">
+                      {lang("closed", isAr)}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -791,17 +759,15 @@ export const SupportPage: React.FC = () => {
                           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                         />
                       </svg>
-                      <span className="text-sm">
-                        {lang("loadMessages", isAr)}
-                      </span>
+                      <span className="text-sm">{lang("loadMessages", isAr)}</span>
                     </div>
                   </div>
                 ) : messages.length > 0 ? (
-                  messages.map((msg, idx) => (
+                  messages.map((msg) => (
                     <MessageBubble
-                      key={msg.id || idx}
+                      key={msg.id}
                       message={msg}
-                      isOwn={msg.userType === "Store"}
+                      isOwn={msg.senderType === "Store"}
                       isAr={isAr}
                     />
                   ))
@@ -838,7 +804,10 @@ export const SupportPage: React.FC = () => {
                 <div className="flex items-end gap-2">
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="p-2.5 rounded-xl text-surface-400 hover:text-surface-600 dark:text-surface-500 dark:hover:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors flex-shrink-0"
+                    disabled={
+                      selectedTicket.status === "Closed" || sendMessage.isPending
+                    }
+                    className="p-2.5 rounded-xl text-surface-400 hover:text-surface-600 dark:text-surface-500 dark:hover:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors flex-shrink-0 disabled:opacity-50"
                     title={lang("attachFile", isAr)}
                   >
                     <svg
@@ -860,6 +829,7 @@ export const SupportPage: React.FC = () => {
                     type="file"
                     className="hidden"
                     accept="image/*,.pdf,.doc,.docx"
+                    onChange={handleFileSelect}
                   />
                   <textarea
                     ref={textareaRef}
@@ -867,8 +837,9 @@ export const SupportPage: React.FC = () => {
                     onChange={(e) => setNewMessage(e.target.value)}
                     onKeyDown={handleKeyDown}
                     placeholder={lang("typeMessage", isAr)}
+                    disabled={selectedTicket.status === "Closed"}
                     className={cn(
-                      "flex-1 resize-none rounded-xl px-3 sm:px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all min-h-[44px] max-h-32",
+                      "flex-1 resize-none rounded-xl px-3 sm:px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all min-h-[44px] max-h-32 disabled:opacity-60",
                       isRTL && "text-right",
                     )}
                     rows={1}
@@ -876,10 +847,14 @@ export const SupportPage: React.FC = () => {
                   />
                   <button
                     onClick={handleSendMessage}
-                    disabled={!newMessage.trim() || isSending}
+                    disabled={
+                      !newMessage.trim() ||
+                      sendMessage.isPending ||
+                      selectedTicket.status === "Closed"
+                    }
                     className="px-4 sm:px-5 py-2.5 rounded-xl text-sm font-medium transition-all bg-primary-600 text-white hover:bg-primary-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 flex-shrink-0 shadow-lg shadow-primary-500/20"
                   >
-                    {isSending ? (
+                    {sendMessage.isPending ? (
                       <>
                         <svg
                           className="w-4 h-4 animate-spin"
@@ -965,7 +940,7 @@ export const SupportPage: React.FC = () => {
         </div>
       </div>
 
-      {/* New Ticket Modal */}
+      {/* New Ticket Modal — priority removed, order/subject/message kept */}
       {showNewTicket && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in"
@@ -1021,21 +996,18 @@ export const SupportPage: React.FC = () => {
                   className="w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all"
                 />
               </div>
+
               {/* Order Selection */}
               <div className={cn("space-y-1.5", isRTL && "text-right")}>
                 <label className="block text-xs font-medium text-surface-700 dark:text-surface-300">
-                  {isAr ? "مرتبط بطلب (اختياري)" : "Related Order (Optional)"}
+                  {lang("optionalOrder", isAr)}
                 </label>
                 <select
                   value={selectedOrderId}
                   onChange={(e) => setSelectedOrderId(e.target.value)}
                   className="w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all"
                 >
-                  <option value="">
-                    {isAr
-                      ? "بدون طلب (تذكرة عامة)"
-                      : "No order (General ticket)"}
-                  </option>
+                  <option value="">{lang("noOrder", isAr)}</option>
                   {recentOrders.map((order) => (
                     <option key={order.id} value={order.id}>
                       #{order.orderNumber} — {order.totalAmount} EGP
@@ -1043,22 +1015,7 @@ export const SupportPage: React.FC = () => {
                   ))}
                 </select>
               </div>
-              {/* Priority */}
-              <div className={cn("space-y-1.5", isRTL && "text-right")}>
-                <label className="block text-xs font-medium text-surface-700 dark:text-surface-300">
-                  {lang("priority", isAr)}
-                </label>
-                <select
-                  value={newTicketPriority}
-                  onChange={(e) => setNewTicketPriority(e.target.value)}
-                  className="w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all"
-                >
-                  <option value="Low">{lang("low", isAr)}</option>
-                  <option value="Medium">{lang("medium", isAr)}</option>
-                  <option value="High">{lang("high", isAr)}</option>
-                  <option value="Urgent">{lang("urgent", isAr)}</option>
-                </select>
-              </div>
+
               {/* Message */}
               <div className={cn("space-y-1.5", isRTL && "text-right")}>
                 <label className="block text-xs font-medium text-surface-700 dark:text-surface-300">
@@ -1072,11 +1029,12 @@ export const SupportPage: React.FC = () => {
                   className="w-full rounded-xl px-4 py-2.5 text-sm bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-white placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 border-surface-200 dark:border-surface-700 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 focus:bg-surface-50 dark:focus:bg-surface-800/50 transition-all resize-none"
                 />
               </div>
+
               {/* Buttons */}
               <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => setShowNewTicket(false)}
-                  disabled={isCreating}
+                  disabled={createTicket.isPending}
                   className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-surface-100 dark:bg-surface-800 text-surface-700 dark:text-surface-300 hover:bg-surface-200 dark:hover:bg-surface-700 transition-colors disabled:opacity-50"
                 >
                   {lang("cancel", isAr)}
@@ -1086,11 +1044,11 @@ export const SupportPage: React.FC = () => {
                   disabled={
                     !newTicketSubject.trim() ||
                     !newTicketMessage.trim() ||
-                    isCreating
+                    createTicket.isPending
                   }
                   className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-primary-600 text-white hover:bg-primary-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-all shadow-lg shadow-primary-500/20"
                 >
-                  {isCreating ? (
+                  {createTicket.isPending ? (
                     <>
                       <svg
                         className="w-4 h-4 animate-spin"

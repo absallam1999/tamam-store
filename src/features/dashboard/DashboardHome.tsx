@@ -6,11 +6,11 @@ import { useLanguage } from "@/shared/hooks/useLanguage";
 import {
   useStoreOrderStats,
   useStoreOrders,
+  type NormalizedOrder,
 } from "@shared/hooks/useStoreOrders";
 import { useStoreProducts } from "@shared/hooks/useStoreProducts";
 import { cn } from "@shared/utils/cn";
 import { formatCurrency, getRelativeTime } from "@shared/utils/formatters";
-import type { StoreOrderDto } from "@shared/types";
 import { useToast } from "@shared/components/Toaster";
 
 // ============================================
@@ -33,35 +33,28 @@ const t = {
   todayOrders: { ar: "طلبات اليوم", en: "Today's Orders" },
   pendingOrders: { ar: "طلبات معلقة", en: "Pending Orders" },
   activeOrders: { ar: "طلبات نشطة", en: "Active Orders" },
-  completedToday: { ar: "اكتملت اليوم", en: "Completed Today" },
-  avgOrder: { ar: "متوسط الطلب", en: "Avg Order" },
   totalProducts: { ar: "إجمالي المنتجات", en: "Total Products" },
-  needReview: { ar: "تحتاج مراجعة", en: "Need Review" },
   recentOrders: { ar: "آخر الطلبات", en: "Recent Orders" },
   viewAll: { ar: "عرض الكل", en: "View All" },
   noRecentOrders: { ar: "لا توجد طلبات حديثة", en: "No recent orders" },
-  order: { ar: "الطلب", en: "Order" },
-  customer: { ar: "العميل", en: "Customer" },
-  items: { ar: "العناصر", en: "Items" },
-  amount: { ar: "المبلغ", en: "Amount" },
-  status: { ar: "الحالة", en: "Status" },
-  time: { ar: "الوقت", en: "Time" },
   itemsCount: { ar: "عناصر", en: "items" },
   refresh: { ar: "تحديث", en: "Refresh" },
-  retry: { ar: "إعادة المحاولة", en: "Retry" },
-  error: { ar: "حدث خطأ", en: "An error occurred" },
-  loadError: { ar: "فشل تحميل البيانات", en: "Failed to load data" },
   statusPending: { ar: "قيد الانتظار", en: "Pending" },
   statusAccepted: { ar: "مقبول", en: "Accepted" },
   statusPreparing: { ar: "قيد التحضير", en: "Preparing" },
-  statusReady: { ar: "جاهز", en: "Ready" },
-  statusPickedUp: { ar: "في الطريق", en: "In Transit" },
+  statusReadyForDriver: { ar: "جاهز للسائق", en: "Ready for Driver" },
+  statusDriverAssigned: { ar: "تم تعيين سائق", en: "Driver Assigned" },
+  statusPickedUp: { ar: "تم الاستلام", en: "Picked Up" },
+  statusInTransit: { ar: "في الطريق", en: "In Transit" },
   statusDelivered: { ar: "تم التوصيل", en: "Delivered" },
   statusCancelled: { ar: "ملغي", en: "Cancelled" },
+  statusRejected: { ar: "مرفوض", en: "Rejected" },
+  statusFailed: { ar: "فاشل", en: "Failed" },
 };
 
 // ============================================
-// Status Configuration
+// Status Configuration — lowercase keys match
+// `FrontendOrderStatus` from `useStoreOrders`.
 // ============================================
 
 const getStatusConfig = (isAr: boolean) => ({
@@ -83,17 +76,29 @@ const getStatusConfig = (isAr: boolean) => ({
       "bg-warning-50 text-warning-700 border-warning-200 dark:bg-warning-500/10 dark:text-warning-400 dark:border-warning-500/20",
     dot: "bg-warning-500",
   },
-  ready: {
-    label: isAr ? t.statusReady.ar : t.statusReady.en,
+  readyfordriver: {
+    label: isAr ? t.statusReadyForDriver.ar : t.statusReadyForDriver.en,
     className:
       "bg-success-50 text-success-700 border-success-200 dark:bg-success-500/10 dark:text-success-400 dark:border-success-500/20",
     dot: "bg-success-500",
   },
-  picked_up: {
+  driverassigned: {
+    label: isAr ? t.statusDriverAssigned.ar : t.statusDriverAssigned.en,
+    className:
+      "bg-primary-50 text-primary-700 border-primary-200 dark:bg-primary-500/10 dark:text-primary-400 dark:border-primary-500/20",
+    dot: "bg-primary-500",
+  },
+  pickedup: {
     label: isAr ? t.statusPickedUp.ar : t.statusPickedUp.en,
     className:
       "bg-primary-50 text-primary-700 border-primary-200 dark:bg-primary-500/10 dark:text-primary-400 dark:border-primary-500/20",
     dot: "bg-primary-500",
+  },
+  intransit: {
+    label: isAr ? t.statusInTransit.ar : t.statusInTransit.en,
+    className:
+      "bg-info-50 text-info-700 border-info-200 dark:bg-info-500/10 dark:text-info-400 dark:border-info-500/20",
+    dot: "bg-info-500",
   },
   delivered: {
     label: isAr ? t.statusDelivered.ar : t.statusDelivered.en,
@@ -107,6 +112,18 @@ const getStatusConfig = (isAr: boolean) => ({
       "bg-error-50 text-error-700 border-error-200 dark:bg-error-500/10 dark:text-error-400 dark:border-error-500/20",
     dot: "bg-error-500",
   },
+  rejected: {
+    label: isAr ? t.statusRejected.ar : t.statusRejected.en,
+    className:
+      "bg-error-50 text-error-700 border-error-200 dark:bg-error-500/10 dark:text-error-400 dark:border-error-500/20",
+    dot: "bg-error-500",
+  },
+  failed: {
+    label: isAr ? t.statusFailed.ar : t.statusFailed.en,
+    className:
+      "bg-error-50 text-error-700 border-error-200 dark:bg-error-500/10 dark:text-error-400 dark:border-error-500/20",
+    dot: "bg-error-500",
+  },
 });
 
 // ============================================
@@ -116,8 +133,14 @@ const getStatusConfig = (isAr: boolean) => ({
 export const DashboardHome: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { store, isOpen, isBusy, toggleStoreStatus, toggleBusy, refreshStore } =
-    useStore();
+  const {
+    store,
+    isOpen,
+    isBusy,
+    toggleStoreStatus,
+    toggleStoreBusy,
+    refreshStore,
+  } = useStore();
   const { currentLanguage } = useLanguage();
   const toast = useToast();
   const [isToggling, setIsToggling] = useState(false);
@@ -134,26 +157,38 @@ export const DashboardHome: React.FC = () => {
     refetch: refetchStats,
   } = useStoreOrderStats();
 
-  // Products
-  const { data: products = [], isLoading: productsLoading } =
-    useStoreProducts();
+  // Products — `useStoreProducts` may return `PagedResult<ProductDto>` or
+  // `ProductDto[]`; normalize both shapes into a flat array.
+  const productsQuery = useStoreProducts();
+  const products = useMemo(() => {
+    const data = productsQuery.data;
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+    return (data as { items?: unknown[] }).items ?? [];
+  }, [productsQuery.data]);
 
-  // Recent Orders - use the proper hook
+  // Recent Orders — already `NormalizedOrder[]`
   const {
     data: ordersData,
     isLoading: recentLoading,
     refetch: refetchOrders,
   } = useStoreOrders();
 
-  // Extract recent orders (first 5)
-  const recentOrders: StoreOrderDto[] = useMemo(() => {
-    if (Array.isArray(ordersData)) return ordersData.slice(0, 5);
-    return [];
+  // Extract recent orders (first 5) — sorted newest-first
+  const recentOrders: NormalizedOrder[] = useMemo(() => {
+    if (!Array.isArray(ordersData)) return [];
+    return [...ordersData]
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
+      .slice(0, 5);
   }, [ordersData]);
 
-  const isLoading = statsLoading || productsLoading || recentLoading;
+  const isLoading =
+    statsLoading || productsQuery.isLoading || recentLoading;
 
-  // Compute today's orders count
+  // Today's orders — fallback when `orderStats.ordersToday` isn't ready yet
   const todayOrdersCount = useMemo(() => {
     if (!ordersData) return 0;
     const todayStart = new Date();
@@ -164,23 +199,28 @@ export const DashboardHome: React.FC = () => {
     }).length;
   }, [ordersData]);
 
+  // Map server stats → display metrics.
+  // `activeOrders` on the server has no single field — it's the sum of
+  // every in-flight bucket.
   const stats = useMemo(
     () => ({
       todayRevenue: orderStats?.revenueToday ?? 0,
-      todayOrders: orderStats?.totalOrdersToday || todayOrdersCount,
+      todayOrders: orderStats?.ordersToday ?? todayOrdersCount,
       pendingOrders: orderStats?.pendingOrders ?? 0,
-      activeOrders: orderStats?.activeOrders ?? 0,
-      completedToday: orderStats?.completedToday ?? 0,
-      avgOrder:
-        orderStats?.totalOrdersToday && orderStats?.revenueToday
-          ? orderStats.revenueToday / orderStats.totalOrdersToday
-          : 0,
+      activeOrders:
+        (orderStats?.acceptedOrders ?? 0) +
+        (orderStats?.preparingOrders ?? 0) +
+        (orderStats?.readyForDriverOrders ?? 0) +
+        (orderStats?.pickedUpOrders ?? 0) +
+        (orderStats?.inTransitOrders ?? 0),
+      avgOrder: orderStats?.averageOrderValue ?? 0,
       totalProducts: products.length,
     }),
-    [orderStats, products, todayOrdersCount],
+    [orderStats, products.length, todayOrdersCount],
   );
 
-  // Handle store toggle
+  // Handle store open/close — StoreProvider re-throws on failure,
+  // so the catch block now actually fires on network/server errors.
   const handleToggle = async () => {
     setIsToggling(true);
     const newIsOpen = !isOpen;
@@ -204,10 +244,11 @@ export const DashboardHome: React.FC = () => {
     }
   };
 
+  // Handle busy toggle — same pattern, hits PATCH /api/store/profile/busy.
   const handleBusyToggle = async () => {
     setIsBusyToggling(true);
     try {
-      await toggleBusy();
+      await toggleStoreBusy();
       toast.success(isAr ? "تم تحديث حالة الانشغال" : "Busy status updated");
     } catch {
       toast.error(isAr ? "فشل تحديث الحالة" : "Failed to update busy status");
@@ -256,7 +297,6 @@ export const DashboardHome: React.FC = () => {
             <p className="text-sm text-surface-500 dark:text-surface-400 font-medium">
               {storeName}
             </p>
-            {/* Status Badge */}
             <span
               className={cn(
                 "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border",
@@ -317,7 +357,6 @@ export const DashboardHome: React.FC = () => {
             </button>
           </div>
 
-          {/* Divider */}
           <div className="hidden sm:block w-px h-6 bg-surface-200 dark:bg-surface-700" />
 
           {/* Busy/Free Toggle */}
@@ -355,10 +394,9 @@ export const DashboardHome: React.FC = () => {
             </button>
           </div>
 
-          {/* Divider */}
           <div className="hidden sm:block w-px h-6 bg-surface-200 dark:bg-surface-700" />
 
-          {/* Refresh Button */}
+          {/* Refresh */}
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
@@ -475,7 +513,7 @@ export const DashboardHome: React.FC = () => {
                 />
               </svg>
             ),
-            to: "/dashboard/orders?status=Accepted",
+            to: "/dashboard/orders?status=accepted",
           },
           {
             label: lang(t.totalProducts),

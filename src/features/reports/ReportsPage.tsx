@@ -487,7 +487,8 @@ export const ReportsPage: React.FC = () => {
   const [selectedPeriod, setSelectedPeriod] =
     useState<ReportPeriod>("this_month");
   const [isDownloading, setIsDownloading] = useState(false);
-  const { reportData, isLoading } = useStoreReports(selectedPeriod);
+  const { reportData, isLoading, isError, refetch } =
+    useStoreReports(selectedPeriod);
 
   const handleDownloadPDF = () => {
     if (!reportData) return;
@@ -596,7 +597,27 @@ export const ReportsPage: React.FC = () => {
         </div>
 
         {/* ========== CONTENT ========== */}
-        {reportData ? (
+        {isError ? (
+          <div className="flex flex-col items-center justify-center py-16 sm:py-32 bg-white dark:bg-surface-900 rounded-3xl border border-surface-200 dark:border-surface-800 w-full">
+            <div className="w-16 h-16 rounded-full bg-red-50 dark:bg-red-500/10 flex items-center justify-center mb-4">
+              {Icon.cancel("w-8 h-8 text-red-500")}
+            </div>
+            <h3 className="text-base sm:text-lg font-bold text-surface-900 dark:text-white mb-2">
+              {isAr ? "تعذر تحميل البيانات" : "Failed to load data"}
+            </h3>
+            <p className="text-xs sm:text-sm text-surface-500 max-w-sm px-6 text-center mb-4">
+              {isAr
+                ? "حدث خطأ أثناء جلب التقارير"
+                : "An error occurred while fetching reports"}
+            </p>
+            <button
+              onClick={() => refetch()}
+              className="px-4 py-2 rounded-xl text-sm font-medium bg-primary-600 text-white hover:bg-primary-700"
+            >
+              {isAr ? "إعادة المحاولة" : "Retry"}
+            </button>
+          </div>
+        ) : reportData ? (
           <>
             {/* SUMMARY CARDS */}
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-4 w-full">

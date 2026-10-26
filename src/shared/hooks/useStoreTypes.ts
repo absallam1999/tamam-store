@@ -1,130 +1,102 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import type { StoreTypeMappingDto, StoreTypeDto, StoreCategoryDto } from "../types";
-import { storeApi } from "../../config/storeApi";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { storeApi } from "@/config/store.api";
+import type {
+  CategoryWithTypesDto,
+  StoreCategoryDto,
+  StoreTypeListDto,
+  StoreTypeProfileDto,
+} from "@shared/types";
+import { STORE_PROFILE_KEY } from "./useStoreProfile";
+
+// ============================================================
+// Query Keys
+// ============================================================
 
 export const STORE_TYPES_KEY = "storeTypes";
 export const AVAILABLE_STORE_TYPES_KEY = "availableStoreTypes";
+export const GROUPED_STORE_TYPES_KEY = "groupedStoreTypes";
 export const STORE_CATEGORIES_KEY = "storeCategories";
 export const PUBLIC_STORE_CATEGORIES_KEY = "publicStoreCategories";
-
-// ----------------------------------------------------------------------
-// Helpers
-// ----------------------------------------------------------------------
-
-function unwrap<T>(response: unknown): T {
-  if (response && typeof response === "object" && "data" in response) {
-    return (response as Record<string, unknown>).data as T;
-  }
-  return response as T;
-}
 
 // ============================================================
 // Queries
 // ============================================================
 
 /**
- * Fetch the store's current approved + pending types
+ * GET /api/store/type-applications — my approved + pending applications.
  */
-export const useStoreTypes = () => {
-  return useQuery<StoreTypeMappingDto[]>({
+export function useMyTypeApplications() {
+  return useQuery<StoreTypeProfileDto[]>({
     queryKey: [STORE_TYPES_KEY],
-    queryFn: async () => {
-      const response = await storeApi.getStoreTypes();
-      const data = unwrap<any>(response);
-      if (data?.items) return data.items as StoreTypeMappingDto[];
-      if (Array.isArray(data)) return data as StoreTypeMappingDto[];
-      return [];
-    },
+    queryFn: () => storeApi.storeTypes.getMyApplications(),
     staleTime: 5 * 60 * 1000,
   });
-};
+}
 
 /**
- * Fetch available categories (GET /api/store/categories/available)
- * Used in authenticated store dashboard.
+ * GET /api/store-types/active[?categoryId=] — browseable store types.
  */
-export const useStoreCategories = () => {
-  return useQuery<StoreCategoryDto[]>({
-    queryKey: [STORE_CATEGORIES_KEY],
-    queryFn: async () => {
-      const response = await storeApi.getAvailableCategories();
-      const data = unwrap<any>(response);
-      if (data?.items) return data.items as StoreCategoryDto[];
-      if (Array.isArray(data)) return data as StoreCategoryDto[];
-      return [];
-    },
+export function useAvailableStoreTypes(categoryId?: string) {
+  return useQuery<StoreTypeListDto[]>({
+    queryKey: [AVAILABLE_STORE_TYPES_KEY, categoryId ?? null],
+    queryFn: () =>
+      categoryId
+        ? storeApi.storeTypes.getAvailableByCategory(categoryId)
+        : storeApi.storeTypes.getAvailable(),
     staleTime: 5 * 60 * 1000,
   });
-};
+}
 
 /**
- * Fetch public store categories (GET /api/browse/store-categories)
- * No authentication required — used on the registration page.
+ * GET /api/store-types/grouped-by-category — for a category-first picker.
  */
-export const usePublicStoreCategories = () => {
+export function useGroupedStoreTypes() {
+  return useQuery<CategoryWithTypesDto[]>({
+    queryKey: [GROUPED_STORE_TYPES_KEY],
+    queryFn: () => storeApi.storeTypes.getGrouped(),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * GET /api/browse/store-categories — public store categories
+ */
+export function usePublicStoreCategories() {
   return useQuery<StoreCategoryDto[]>({
     queryKey: [PUBLIC_STORE_CATEGORIES_KEY],
-    queryFn: async () => {
-      const response = await storeApi.getPublicStoreCategories();
-      const data = unwrap<any>(response);
-      if (data?.items) return data.items as StoreCategoryDto[];
-      if (Array.isArray(data)) return data as StoreCategoryDto[];
-      return [];
-    },
+    queryFn: () => storeApi.storeTypes.getCategories(),
     staleTime: 5 * 60 * 1000,
   });
-};
+}
 
-/**
- * Fetch available store types, optionally filtered by category
- * GET /api/store/types/available?categoryId={categoryId}
- */
-export const useAvailableStoreTypes = (categoryId?: string) => {
-  return useQuery<StoreTypeDto[]>({
-    queryKey: [AVAILABLE_STORE_TYPES_KEY, categoryId],
-    queryFn: async () => {
-      const response = categoryId
-        ? await storeApi.getAvailableStoreTypesByCategory(categoryId)
-        : await storeApi.getAvailableStoreTypes();
-      const data = unwrap<any>(response);
-      if (data?.items) return data.items as StoreTypeDto[];
-      if (Array.isArray(data)) return data as StoreTypeDto[];
-      return [];
-    },
-    enabled: true,
-    staleTime: 5 * 60 * 1000,
-  });
-};
+export const useStoreCategories = usePublicStoreCategories;
 
 // ============================================================
 // Mutations
 // ============================================================
 
-export const useAddStoreType = () => {
+export function useAddStoreType() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (storeTypeId: string) => {
-      const response = await storeApi.addStoreType(storeTypeId);
-      return unwrap<void>(response);
-    },
+  return useMutation<StoreTypeProfileDto, Error, string>({
+    mutationFn: (storeTypeId) => storeApi.storeTypes.requestType(storeTypeId),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [STORE_PROFILE_KEY] });
       qc.invalidateQueries({ queryKey: [STORE_TYPES_KEY] });
-      qc.invalidateQueries({ queryKey: ["store"] });
     },
   });
-};
+}
 
-export const useRemoveStoreType = () => {
+/**
+ * DELETE /api/store/type-applications/{mappingId}
+ */
+export function useRemoveStoreType() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (mappingId: string) => {
-      const response = await storeApi.removeStoreType(mappingId);
-      return unwrap<void>(response);
-    },
+  return useMutation<void, Error, string>({
+    mutationFn: (mappingId) =>
+      storeApi.storeTypes.cancelApplication(mappingId).then((r) => r.data),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [STORE_PROFILE_KEY] });
       qc.invalidateQueries({ queryKey: [STORE_TYPES_KEY] });
-      qc.invalidateQueries({ queryKey: ["store"] });
     },
   });
-};
+}

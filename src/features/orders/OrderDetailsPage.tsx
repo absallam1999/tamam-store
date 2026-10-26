@@ -12,6 +12,7 @@ import {
   usePickedUpOrder,
   useCancelOrder,
   useCompleteStoreDelivery,
+  type FrontendOrderStatus,
 } from "@/shared/hooks/useStoreOrders";
 import { useState } from "react";
 
@@ -306,19 +307,27 @@ const getStatusConfig = (isAr: boolean) => ({
 });
 
 // Status flow
-const STATUS_FLOW: Record<string, string | null> = {
+const STATUS_FLOW: Record<FrontendOrderStatus, FrontendOrderStatus | null> = {
   pending: "accepted",
-  accepted: "ready",
+  accepted: "preparing",
+  preparing: "ready",
   ready: "picked_up",
   picked_up: null,
   delivered: null,
   cancelled: null,
 };
 
-const STATUS_ACTION_LABEL: Record<string, { ar: string; en: string }> = {
+const STATUS_ACTION_LABEL: Record<
+  FrontendOrderStatus,
+  { ar: string; en: string }
+> = {
+  pending: { ar: "", en: "" },
   accepted: { ar: "قبول الطلب", en: "Accept Order" },
-  ready: { ar: "جاهز للتوصيل", en: "Ready for Pickup" },
-  picked_up: { ar: "تأكيد الاستلام", en: "Confirm Pickup" },
+  preparing: { ar: "جاهز للتوصيل", en: "Ready for Pickup" },
+  ready: { ar: "تأكيد الاستلام", en: "Confirm Pickup" },
+  picked_up: { ar: "", en: "" },
+  delivered: { ar: "", en: "" },
+  cancelled: { ar: "", en: "" },
 };
 
 // ============================================
@@ -340,12 +349,8 @@ export const OrderDetailsPage: React.FC = () => {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showDeliveryMethodModal, setShowDeliveryMethodModal] = useState(false);
 
-  const {
-    data: order,
-    isLoading,
-    error,
-    refetch,
-  } = useStoreOrder(orderId || "");
+  const { data: order, isLoading, error, refetch } = useStoreOrder(orderId);
+
   const acceptOrder = useAcceptOrder();
   const rejectOrder = useRejectOrder();
   const updateStatus = useUpdateOrderStatus();
@@ -362,34 +367,38 @@ export const OrderDetailsPage: React.FC = () => {
     pickedUpOrder.isPending ||
     cancelOrder.isPending;
 
-  const handleStatusUpdate = async (newStatus: string) => {
+  const handleStatusUpdate = async (newStatus: FrontendOrderStatus) => {
     if (!order) return;
     try {
       if (newStatus === "accepted") {
         await acceptOrder.mutateAsync(order.id);
-        toast.success(lang(t.statusUpdated));
+      } else if (newStatus === "preparing") {
+        await updateStatus.mutateAsync({
+          orderId: order.id,
+          status: "preparing",
+        });
       } else if (newStatus === "ready") {
         setShowDeliveryMethodModal(true);
         return;
       } else if (newStatus === "picked_up") {
         await pickedUpOrder.mutateAsync(order.id);
-        toast.success(lang(t.statusUpdated));
       } else if (newStatus === "delivered") {
         await updateStatus.mutateAsync({
           orderId: order.id,
           status: "delivered",
         });
-        toast.success(lang(t.statusUpdated));
       } else {
         await updateStatus.mutateAsync({
           orderId: order.id,
           status: newStatus,
         });
-        toast.success(lang(t.statusUpdated));
       }
+      toast.success(lang(t.statusUpdated));
       refetch();
-    } catch (err: any) {
-      toast.error(err?.message || lang(t.statusUpdateError));
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : lang(t.statusUpdateError);
+      toast.error(message);
     }
   };
 
@@ -516,7 +525,7 @@ export const OrderDetailsPage: React.FC = () => {
   const nextStatus = STATUS_FLOW[status];
   const nextLabel = nextStatus ? lang(STATUS_ACTION_LABEL[nextStatus]) : null;
   const canReject = status === "pending";
-  const canCancel = ["pending", "accepted"].includes(status);
+  const canCancel = ["pending", "accepted", "preparing"].includes(status);
 
   return (
     <div
@@ -578,15 +587,15 @@ export const OrderDetailsPage: React.FC = () => {
                 <span className="text-xs text-surface-400">
                   {safeGetRelativeTime(order.createdAt)}
                 </span>
-                {(order as any).paymentMethod && (
+                {order.paymentMethod && (
                   <>
                     <span className="text-xs text-surface-300">•</span>
                     <span className="text-xs text-surface-500">
-                      {(order as any).paymentMethod}
+                      {order.paymentMethod}
                     </span>
                   </>
                 )}
-                {(order as any).orderType === "Scheduled" && (
+                {order.orderType === "Scheduled" && (
                   <>
                     <span className="text-xs text-surface-300">•</span>
                     <span className="text-xs text-surface-500">
@@ -682,27 +691,12 @@ export const OrderDetailsPage: React.FC = () => {
             {order.items && order.items.length > 0 ? (
               <div className="divide-y divide-surface-100 dark:divide-surface-800">
                 {order.items.map((item, idx) => {
-                  const productName = isAr
-                    ? item.productNameAr || item.productNameEn || ""
-                    : item.productNameEn || item.productNameAr || "";
-
-                  let parsedOptions: any[] = [];
-                  try {
-                    if (
-                      typeof item.options === "string" &&
-                      item.options.trim()
-                    ) {
-                      parsedOptions = JSON.parse(item.options);
-                    } else if (Array.isArray(item.options)) {
-                      parsedOptions = item.options;
-                    }
-                  } catch {
-                    parsedOptions = [];
-                  }
+                  const productName = item.productName ?? "";
+                  const optionLines: string[] = item.options ?? [];
 
                   return (
                     <div
-                      key={item.productId || idx}
+                      key={item.id ?? item.productId ?? idx}
                       className="p-4 hover:bg-surface-50 dark:hover:bg-surface-800/30 transition-colors"
                     >
                       <div className="flex items-center justify-between gap-4">
@@ -717,112 +711,44 @@ export const OrderDetailsPage: React.FC = () => {
                           </div>
                         </div>
                         <p className="text-sm font-semibold text-surface-900 dark:text-white tabular-nums">
-                          {formatCurrency(item.quantity * item.unitPrice)}
+                          {formatCurrency(
+                            item.subtotal ?? item.quantity * item.unitPrice,
+                          )}
                         </p>
                       </div>
 
-                      {parsedOptions.length > 0 && (
+                      {optionLines.length > 0 && (
                         <div
                           className={cn(
-                            "mt-2 pl-[44px] space-y-1",
-                            isAr ? "pr-[44px] pl-0" : "pl-[44px] pr-0",
+                            "mt-2 space-y-1",
+                            isAr ? "pr-[44px]" : "pl-[44px]",
                           )}
                         >
-                          {parsedOptions.map((opt, optIdx) => {
-                            let optionName = "";
-                            let optionValues: string[] = [];
-
-                            if (typeof opt === "string") {
-                              optionName = opt;
-                            } else if (opt && typeof opt === "object") {
-                              optionName = isAr
-                                ? opt.nameAr ||
-                                  opt.optionNameAr ||
-                                  opt.name ||
-                                  opt.optionName ||
-                                  opt.groupName ||
-                                  ""
-                                : opt.nameEn ||
-                                  opt.optionNameEn ||
-                                  opt.name ||
-                                  opt.optionName ||
-                                  opt.groupName ||
-                                  "";
-
-                              if (Array.isArray(opt.values)) {
-                                optionValues = opt.values
-                                  .map((v: any) =>
-                                    isAr
-                                      ? v.nameAr ||
-                                        v.valueNameAr ||
-                                        v.name ||
-                                        v.valueName ||
-                                        ""
-                                      : v.nameEn ||
-                                        v.valueNameEn ||
-                                        v.name ||
-                                        v.valueName ||
-                                        "",
-                                  )
-                                  .filter(Boolean);
-                              } else if (opt.value) {
-                                optionValues = [
-                                  isAr
-                                    ? opt.value.nameAr || opt.value.name || ""
-                                    : opt.value.nameEn || opt.value.name || "",
-                                ];
-                              } else if (opt.valueName) {
-                                optionValues = [opt.valueName];
-                              } else if (opt.selectedValue) {
-                                optionValues = [
-                                  typeof opt.selectedValue === "string"
-                                    ? opt.selectedValue
-                                    : isAr
-                                      ? opt.selectedValue.nameAr ||
-                                        opt.selectedValue.name ||
-                                        ""
-                                      : opt.selectedValue.nameEn ||
-                                        opt.selectedValue.name ||
-                                        "",
-                                ];
-                              }
-                            }
-
-                            return (
-                              <div
-                                key={optIdx}
-                                className="flex items-start gap-2 text-xs"
-                              >
-                                <span className="text-surface-400 dark:text-surface-500 mt-0.5">
-                                  <svg
-                                    className="w-3 h-3"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    strokeWidth={2}
-                                    stroke="currentColor"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                    />
-                                  </svg>
-                                </span>
-                                <div className="flex flex-col gap-0.5">
-                                  {optionName && (
-                                    <span className="font-medium text-surface-600 dark:text-surface-400">
-                                      {optionName}:
-                                    </span>
-                                  )}
-                                  {optionValues.length > 0 && (
-                                    <span className="text-surface-500 dark:text-surface-500">
-                                      {optionValues.join(", ")}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
+                          {optionLines.map((line, optIdx) => (
+                            <div
+                              key={optIdx}
+                              className="flex items-start gap-2 text-xs"
+                            >
+                              <span className="text-surface-400 dark:text-surface-500 mt-0.5 shrink-0">
+                                <svg
+                                  className="w-3 h-3"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  strokeWidth={2}
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                  />
+                                </svg>
+                              </span>
+                              <span className="text-surface-500 dark:text-surface-400">
+                                {line}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -872,11 +798,11 @@ export const OrderDetailsPage: React.FC = () => {
                   {formatCurrency(order.deliveryFee || 0)}
                 </span>
               </div>
-              {((order as any).discount ?? 0) > 0 && (
+              {(order.discount ?? 0) > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-success-600">{lang(t.discount)}</span>
                   <span className="font-medium text-success-600 tabular-nums">
-                    -{formatCurrency((order as any).discount || 0)}
+                    -{formatCurrency(order.discount || 0)}
                   </span>
                 </div>
               )}

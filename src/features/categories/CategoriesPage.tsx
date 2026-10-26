@@ -7,10 +7,14 @@ import {
   useCreateMenuCategory,
   useUpdateMenuCategory,
   useDeleteMenuCategory,
+  useToggleMenuCategoryAvailability,
 } from "@shared/hooks/useMenuCategories";
 import { translateText } from "@shared/utils/translate";
-import { useStoreProducts } from "@shared/hooks/useStoreProducts";
-import type { MenuCategoryDto } from "@shared/types";
+import type {
+  MenuCategoryDto,
+  CreateMenuCategoryDto,
+  UpdateMenuCategoryDto,
+} from "@shared/types";
 
 // ============================================
 // Translations
@@ -140,24 +144,18 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
     setTranslatingField(field);
     try {
       if (isAr) {
-        // AR mode: translate FROM Arabic TO English
         if (field === "name" && nameAr.trim()) {
-          const translated = await translateText(nameAr, "en");
-          setNameEn(translated);
+          setNameEn(await translateText(nameAr, "en"));
         }
         if (field === "description" && descriptionAr.trim()) {
-          const translated = await translateText(descriptionAr, "en");
-          setDescriptionEn(translated);
+          setDescriptionEn(await translateText(descriptionAr, "en"));
         }
       } else {
-        // EN mode: translate FROM English TO Arabic
         if (field === "name" && nameEn.trim()) {
-          const translated = await translateText(nameEn, "ar");
-          setNameAr(translated);
+          setNameAr(await translateText(nameEn, "ar"));
         }
         if (field === "description" && descriptionEn.trim()) {
-          const translated = await translateText(descriptionEn, "ar");
-          setDescriptionAr(translated);
+          setDescriptionAr(await translateText(descriptionEn, "ar"));
         }
       }
     } catch {
@@ -178,43 +176,36 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
       return;
     }
 
-    // Build the payload according to UpdateMenuCategoryDto
-    // Note: UpdateMenuCategoryDto extends CreateMenuCategoryDto with isAvailable
-    const payload = {
+    // Base fields shared by create and update
+    const basePayload: CreateMenuCategoryDto = {
       nameAr: nameAr.trim(),
       nameEn: nameEn.trim(),
       descriptionAr: descriptionAr.trim() || undefined,
       descriptionEn: descriptionEn.trim() || undefined,
       imageUrl: imageUrl.trim() || undefined,
       displayOrder: parseInt(displayOrder) || 0,
-      // isAvailable is only needed for updates, not for create
-      // It will be added when updating if initial exists
     };
 
     try {
       if (initial) {
-        // For update, include isAvailable from the existing category
+        // Update requires `isAvailable` — preserve current state
+        const updateDto: UpdateMenuCategoryDto = {
+          ...basePayload,
+          isAvailable: initial.isAvailable,
+        };
         await updateMutation.mutateAsync({
           categoryId: initial.id,
-          dto: {
-            ...payload,
-            isAvailable: initial.isAvailable,
-          },
+          dto: updateDto,
         });
         toast.success(lang(t.updated));
       } else {
-        await createMutation.mutateAsync(payload);
+        await createMutation.mutateAsync(basePayload);
         toast.success(lang(t.created));
       }
       onClose();
-    } catch (error: any) {
-      console.error("Category submission error:", error);
-      // Log the error details for debugging
-      if (error?.response) {
-        console.error("API Error Response:", error.response.data);
-        console.error("API Error Status:", error.response.status);
-      }
-      toast.error(lang(t.error));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : lang(t.error);
+      toast.error(message);
     }
   };
 
@@ -238,7 +229,6 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
         ? nameEn.trim()
         : descriptionEn.trim();
 
-    // Only show if source text exists and is more than 2 characters
     if (!hasSource || hasSource.length < 2) return null;
 
     const isBusy = translatingField === field;
@@ -260,9 +250,6 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
           "disabled:opacity-50 disabled:cursor-not-allowed",
           "shadow-sm",
           "focus:outline-none focus:ring-2 focus:ring-primary-500/50",
-          // Position on the opposite side of text direction
-          // Arabic (RTL) text → button on LEFT side
-          // English (LTR) text → button on RIGHT side
           isSourceRTL ? "left-2" : "right-2",
         )}
         title={isAr ? "ترجمة إلى الإنجليزية" : "Translate to Arabic"}
@@ -311,7 +298,6 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
 
   const NameFields = isAr ? (
     <>
-      {/* AR mode: Arabic first */}
       <div>
         <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
           {lang(t.nameAr)} <span className="text-error-500">*</span>
@@ -344,7 +330,6 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
     </>
   ) : (
     <>
-      {/* EN mode: English first */}
       <div>
         <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
           {lang(t.nameEn)} <span className="text-error-500">*</span>
@@ -379,7 +364,6 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
 
   const DescriptionFields = isAr ? (
     <>
-      {/* AR mode: Arabic first, then English */}
       <div>
         <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
           {lang(t.descriptionAr)}{" "}
@@ -422,7 +406,6 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
     </>
   ) : (
     <>
-      {/* EN mode: English first, then Arabic */}
       <div>
         <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
           {lang(t.descriptionEn)}{" "}
@@ -507,12 +490,8 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
           </button>
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Names - ordered by language mode */}
           {NameFields}
-
-          {/* Descriptions - ordered by language mode */}
           {DescriptionFields}
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
@@ -542,7 +521,6 @@ const CategoryForm: React.FC<CategoryFormProps> = ({
               />
             </div>
           </div>
-
           <div className="flex gap-3 pt-2">
             <button
               type="submit"
@@ -744,9 +722,10 @@ export const CategoriesPage: React.FC = () => {
   const isAr = currentLanguage === "ar";
   const lang = (obj: { ar: string; en: string }) => (isAr ? obj.ar : obj.en);
 
-  const { data: categories = [], isLoading } = useMenuCategories();
-  const { data: products = [] } = useStoreProducts();
+  const { data: categoriesData, isLoading } = useMenuCategories();
+  const categories: MenuCategoryDto[] = categoriesData ?? [];
   const deleteCategory = useDeleteMenuCategory();
+  const toggleCategory = useToggleMenuCategoryAvailability();
 
   const [showForm, setShowForm] = useState(false);
   const [editingCategory, setEditingCategory] =
@@ -756,46 +735,35 @@ export const CategoriesPage: React.FC = () => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  // Use the hook's mutation for toggle
-  const updateCategory = useUpdateMenuCategory();
-
   const getDisplayName = (category: MenuCategoryDto) =>
     isAr ? category.nameAr : category.nameEn;
   const getDisplayDescription = (category: MenuCategoryDto) =>
     isAr ? category.descriptionAr : category.descriptionEn;
 
+  // Stats derived from categories — no extra query needed
   const stats = useMemo(() => {
     const active = categories.filter((c) => c.isAvailable);
+    const totalProducts = categories.reduce(
+      (sum, c) => sum + (c.productsCount ?? 0),
+      0,
+    );
     return {
       total: categories.length,
       active: active.length,
       inactive: categories.length - active.length,
-      totalProducts: products.length,
+      totalProducts,
     };
-  }, [categories, products]);
+  }, [categories]);
 
-  const getProductCount = (categoryId: string) =>
-    products.filter((p) => p.menuCategoryId === categoryId).length;
-
+  // Toggle uses the dedicated endpoint — no full-body update, cache patched in place
   const handleToggle = async (category: MenuCategoryDto) => {
     setTogglingId(category.id);
     try {
-      await updateCategory.mutateAsync({
-        categoryId: category.id,
-        dto: {
-          nameAr: category.nameAr,
-          nameEn: category.nameEn,
-          descriptionAr: category.descriptionAr || undefined,
-          descriptionEn: category.descriptionEn || undefined,
-          imageUrl: category.imageUrl || undefined,
-          displayOrder: category.displayOrder,
-          isAvailable: !category.isAvailable,
-        },
-      });
+      await toggleCategory.mutateAsync(category.id);
       toast.success(lang(t.toggled));
-      // No need for window.location.reload() - queryClient auto-refetches
-    } catch {
-      toast.error(lang(t.error));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : lang(t.error);
+      toast.error(message);
     } finally {
       setTogglingId(null);
     }
@@ -804,9 +772,8 @@ export const CategoriesPage: React.FC = () => {
   const handleDelete = async () => {
     if (!deletingCategory) return;
 
-    // Check if category has products
-    const count = getProductCount(deletingCategory.id);
-    if (count > 0) {
+    const productCount = deletingCategory.productsCount ?? 0;
+    if (productCount > 0) {
       toast.error(lang(t.deleteWithProducts));
       setDeletingCategory(null);
       return;
@@ -817,20 +784,9 @@ export const CategoriesPage: React.FC = () => {
       await deleteCategory.mutateAsync(deletingCategory.id);
       toast.success(lang(t.deleted));
       setDeletingCategory(null);
-    } catch (err: any) {
-      console.error("Delete category error:", err);
-      // Check if it's a 500 error (DbUpdateException)
-      const isServerError =
-        err?.response?.status === 500 || err?.message?.includes("500");
-      if (isServerError) {
-        toast.error(lang(t.deleteError), {
-          description: isAr
-            ? "خطأ في قاعدة البيانات. قد يكون التصنيف مرتبطاً بسجلات أخرى."
-            : "Database error. The category may be linked to other records.",
-        });
-      } else {
-        toast.error(lang(t.deleteError));
-      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : lang(t.deleteError);
+      toast.error(lang(t.deleteError), { description: message });
     } finally {
       setDeletingId(null);
     }
@@ -930,7 +886,6 @@ export const CategoriesPage: React.FC = () => {
       )}
       dir={isAr ? "rtl" : "ltr"}
     >
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-surface-900 dark:text-white">
@@ -969,7 +924,6 @@ export const CategoriesPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {statsCards.map((card, idx) => (
           <div
@@ -998,7 +952,6 @@ export const CategoriesPage: React.FC = () => {
         ))}
       </div>
 
-      {/* Categories List */}
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3, 4].map((i) => (
@@ -1070,7 +1023,7 @@ export const CategoriesPage: React.FC = () => {
       ) : (
         <div className="space-y-3">
           {categories.map((category) => {
-            const productCount = getProductCount(category.id);
+            const productCount = category.productsCount ?? 0;
             const isProcessing = togglingId === category.id;
             const displayName = getDisplayName(category);
             const displayDescription = getDisplayDescription(category);
@@ -1085,12 +1038,11 @@ export const CategoriesPage: React.FC = () => {
                 )}
               >
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                  {/* Image */}
                   <div className="w-14 h-14 rounded-xl bg-surface-100 dark:bg-surface-800 flex items-center justify-center overflow-hidden flex-shrink-0">
                     {category.imageUrl ? (
                       <img
                         src={category.imageUrl}
-                        alt={displayName}
+                        alt={displayName ?? ""}
                         className="w-full h-full object-cover"
                       />
                     ) : (
@@ -1110,7 +1062,6 @@ export const CategoriesPage: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="text-base font-bold text-surface-900 dark:text-white">
@@ -1155,7 +1106,6 @@ export const CategoriesPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Actions */}
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button
                       onClick={() => handleToggle(category)}
@@ -1272,7 +1222,6 @@ export const CategoriesPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modals */}
       {showForm && (
         <CategoryForm
           isOpen={showForm}
@@ -1287,8 +1236,8 @@ export const CategoriesPage: React.FC = () => {
       )}
       {deletingCategory && (
         <DeleteConfirmModal
-          name={getDisplayName(deletingCategory)}
-          productCount={getProductCount(deletingCategory.id)}
+          name={getDisplayName(deletingCategory) ?? ""}
+          productCount={deletingCategory.productsCount ?? 0}
           onConfirm={handleDelete}
           onCancel={() => setDeletingCategory(null)}
           isDeleting={deletingId === deletingCategory.id}

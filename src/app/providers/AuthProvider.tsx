@@ -5,14 +5,15 @@ import {
   useEffect,
   useCallback,
   useMemo,
-  useRef,
   type ReactNode,
 } from "react";
-import { ENDPOINTS, getApiUrl } from "@/config/api";
+import { ENDPOINTS } from "@/config/api";
+import { apiClient, ApiError } from "@/lib/api-client";
+import type { AuthResponseDto, UserRole } from "@shared/types";
 
-// ============================================
+// ═════════════════════════════════════════════════════════════════════
 // Types
-// ============================================
+// ═════════════════════════════════════════════════════════════════════
 
 export interface AuthTokens {
   accessToken: string;
@@ -22,19 +23,16 @@ export interface AuthTokens {
 export interface StoreOwner {
   id: string;
   fullName: string;
-  email: string;
   phoneNumber: string;
-  storeId: string;
-  storeName: string;
-  isEmailVerified: boolean;
-  isPhoneVerified: boolean;
-  lastLogin: string;
+  email?: string;
+  role: UserRole;
+  isActive: boolean;
 }
 
 export interface LoginCredentials {
   phoneNumber: string;
   password: string;
-  remember: boolean;
+  remember?: boolean;
 }
 
 export interface SendOtpCredentials {
@@ -52,7 +50,7 @@ export interface StoreRequestCredentials {
   email?: string;
   address?: string;
   city?: string;
-  prandName?: string;
+  brandName?: string;
   note?: string;
   types: string[];
 }
@@ -74,25 +72,23 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-// ============================================
-// Constants
-// ============================================
+// ═════════════════════════════════════════════════════════════════════
+// Storage keys
+// ═════════════════════════════════════════════════════════════════════
 
 const ACCESS_TOKEN_KEY = "store-access-token";
 const REFRESH_TOKEN_KEY = "store-refresh-token";
 const USER_DATA_KEY = "store-user-data";
 
-// ============================================
-// Token Utilities
-// ============================================
+// ═════════════════════════════════════════════════════════════════════
+// Token storage helpers
+// ═════════════════════════════════════════════════════════════════════
 
 function getStoredTokens(): AuthTokens | null {
   try {
     const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-    if (accessToken && refreshToken) {
-      return { accessToken, refreshToken };
-    }
+    if (accessToken && refreshToken) return { accessToken, refreshToken };
     return null;
   } catch {
     return null;
@@ -103,7 +99,9 @@ function storeTokens(tokens: AuthTokens): void {
   try {
     localStorage.setItem(ACCESS_TOKEN_KEY, tokens.accessToken);
     localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refreshToken);
-  } catch {}
+  } catch {
+    /* storage disabled — session will not survive reload */
+  }
 }
 
 function clearTokens(): void {
@@ -111,7 +109,9 @@ function clearTokens(): void {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_DATA_KEY);
-  } catch {}
+  } catch {
+    /* ignore */
+  }
 }
 
 function getStoredUser(): StoreOwner | null {
@@ -127,92 +127,32 @@ function getStoredUser(): StoreOwner | null {
 function storeUser(user: StoreOwner): void {
   try {
     localStorage.setItem(USER_DATA_KEY, JSON.stringify(user));
-  } catch {}
-}
-
-// ============================================
-// Extract token
-// ============================================
-
-function extractTokens(responseData: Record<string, unknown>): AuthTokens | null {
-  const inner = (responseData.data as Record<string, unknown>) ?? responseData;
-  const token = (inner.token ?? responseData.token) as string | undefined;
-  if (!token) return null;
-  const refreshToken = (inner.refreshToken ?? responseData.refreshToken ?? token) as string;
-  return { accessToken: token, refreshToken };
-}
-
-// ============================================
-// Build StoreOwner
-// ============================================
-
-function buildStoreOwner(
-  responseData: Record<string, unknown>,
-  phoneFallback?: string,
-  existingUser?: StoreOwner | null,
-): StoreOwner {
-  const inner = (responseData.data as Record<string, unknown>) ?? responseData;
-  const id = (inner.userId ?? responseData.userId ?? existingUser?.id ?? "") as string;
-
-  const fullName = (inner.fullName ?? responseData.fullName ?? existingUser?.fullName ?? inner.name ?? responseData.name ?? "") as string;
-
-  const phoneNumber = (inner.phoneNumber ?? responseData.phoneNumber ?? phoneFallback ?? existingUser?.phoneNumber ?? "") as string;
-
-  const storeName = (inner.storeNameEn ?? inner.nameEn ?? responseData.storeNameEn ?? responseData.nameEn ?? inner.name ?? responseData.name ?? existingUser?.storeName ?? "") as string;
-
-  return {
-    id,
-    fullName,
-    email: (inner.email ?? responseData.email ?? existingUser?.email ?? "") as string,
-    phoneNumber,
-    storeId: id,
-    storeName,
-    isEmailVerified: (inner.isEmailVerified ?? responseData.isEmailVerified ?? existingUser?.isEmailVerified ?? false) as boolean,
-    isPhoneVerified: (inner.isActive ?? responseData.isActive ?? existingUser?.isPhoneVerified ?? false) as boolean,
-    lastLogin: new Date().toISOString(),
-  };
-}
-
-// ============================================
-// Profile fetch - more resilient
-// ============================================
-
-async function fetchStoreProfile(
-  accessToken: string,
-  existingUser?: StoreOwner | null,
-): Promise<StoreOwner | null> {
-  try {
-    const response = await fetch(getApiUrl(ENDPOINTS.STORE.PROFILE), {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-    
-    // If 401, token is invalid - don't clear everything yet, let refresh try first
-    if (response.status === 401) {
-      console.warn("Profile fetch returned 401, token may be expired");
-      return null;
-    }
-    
-    // If 500 or other server error, don't log out - just return existing user
-    if (!response.ok) {
-      console.warn("Profile fetch failed with status:", response.status);
-      return existingUser || null;
-    }
-    
-    const profile = await response.json();
-    return buildStoreOwner(profile, undefined, existingUser);
-  } catch (err) {
-    console.error("Profile fetch network error:", err);
-    // Network error - don't log out, return existing user
-    return existingUser || null;
+  } catch {
+    /* ignore */
   }
 }
 
-// ============================================
+// ═════════════════════════════════════════════════════════════════════
+// Map the flat AuthResponseDto → StoreOwner
+// ═════════════════════════════════════════════════════════════════════
+
+function mapAuthResponseToUser(
+  dto: AuthResponseDto,
+  phoneFallback?: string,
+): StoreOwner {
+  return {
+    id: dto.userId,
+    fullName: dto.fullName ?? "",
+    phoneNumber: dto.phoneNumber ?? phoneFallback ?? "",
+    email: undefined, // not in AuthResponseDto — filled in by StoreProvider profile fetch
+    role: dto.role ?? "StoreOwner",
+    isActive: dto.isActive,
+  };
+}
+
+// ═════════════════════════════════════════════════════════════════════
 // Provider
-// ============================================
+// ═════════════════════════════════════════════════════════════════════
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -222,292 +162,231 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<StoreOwner | null>(() => getStoredUser());
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  
-  // Track if a token refresh is in progress
-  const isRefreshing = useRef(false);
-  const refreshPromise = useRef<Promise<string | null> | null>(null);
 
   const clearError = useCallback(() => setError(null), []);
 
-  // ============================================
-  // Get current access token
-  // ============================================
+  // ══════════════════════════════════════════════════════════════════
+  // Read the current access token from storage.
+  // api-client refreshes transparently on 401 — this is just a read.
+  // ══════════════════════════════════════════════════════════════════
   const getAccessToken = useCallback((): string | null => {
-    const tokens = getStoredTokens();
-    return tokens?.accessToken || null;
+    return getStoredTokens()?.accessToken ?? null;
   }, []);
 
-  // ============================================
-  // Refresh Token - callable from api-client interceptor
-  // ============================================
+  // ══════════════════════════════════════════════════════════════════
+  // Force a session check. If the token is expired, api-client's 401
+  // interceptor refreshes it and retries. If refresh fails, api-client
+  // clears tokens and redirects to /auth/login.
+  //
+  // Returns the (possibly refreshed) access token, or null when the
+  // session is truly dead.
+  // ══════════════════════════════════════════════════════════════════
   const refreshToken = useCallback(async (): Promise<string | null> => {
-    // If already refreshing, return the existing promise
-    if (isRefreshing.current && refreshPromise.current) {
-      return refreshPromise.current;
-    }
-
-    const tokens = getStoredTokens();
-    if (!tokens?.refreshToken) {
-      return null;
-    }
-
-    isRefreshing.current = true;
-    refreshPromise.current = (async () => {
-      try {
-        const response = await fetch(getApiUrl(ENDPOINTS.AUTH.REFRESH_TOKEN), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            token: tokens.accessToken,
-            refreshToken: tokens.refreshToken,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error("Token refresh failed");
-        }
-
-        const data = await response.json();
-        const newTokens = extractTokens(data);
-        
-        if (newTokens) {
-          storeTokens(newTokens);
-          return newTokens.accessToken;
-        }
-        
-        return null;
-      } catch {
-        console.error("Token refresh failed");
-        return null;
-      } finally {
-        isRefreshing.current = false;
-        refreshPromise.current = null;
+    try {
+      // Any authenticated call exercises the auto-refresh path.
+      await apiClient.get(ENDPOINTS.STORE.PROFILE);
+      return getStoredTokens()?.accessToken ?? null;
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        return null; // Session is dead — api-client already cleaned up
       }
-    })();
-
-    return refreshPromise.current;
+      // Transient error (network / 5xx) — token may still be valid
+      return getStoredTokens()?.accessToken ?? null;
+    }
   }, []);
 
-  // ============================================
-  // Session Initialization
-  // ============================================
+  // ══════════════════════════════════════════════════════════════════
+  // Session initialization on mount
+  // ══════════════════════════════════════════════════════════════════
   useEffect(() => {
-    const initSession = async (): Promise<void> => {
+    let cancelled = false;
+
+    const initSession = async () => {
+      const tokens = getStoredTokens();
       const storedUser = getStoredUser();
-      const storedTokens = getStoredTokens();
 
-      // If one exists without the other, clean up
-      if ((storedUser && !storedTokens) || (!storedUser && storedTokens)) {
-        clearTokens();
-        setUser(null);
-        setIsLoading(false);
-        return;
-      }
-
-      if (!storedTokens) {
-        setIsLoading(false);
-        return;
-      }
-
-      // Try to refresh the token on init (in case it's about to expire)
-      try {
-        const newToken = await refreshToken();
-        if (!newToken) {
-          // Refresh failed, try profile with existing token
-          const profile = await fetchStoreProfile(storedTokens.accessToken, storedUser);
-          if (profile) {
-            setUser(profile);
-            storeUser(profile);
-          } else {
-            // Profile also failed, clear everything
-            clearTokens();
-            setUser(null);
-          }
-        } else {
-          // Token refreshed successfully, fetch profile with new token
-          const profile = await fetchStoreProfile(newToken, storedUser);
-          if (profile) {
-            setUser(profile);
-            storeUser(profile);
-          } else {
-            // Keep stored user data even if profile fetch fails
-            setUser(storedUser);
-          }
+      // No tokens → no session, done.
+      if (!tokens) {
+        if (!cancelled) {
+          setUser(null);
+          clearTokens();
+          setIsLoading(false);
         }
-      } catch {
-        // Keep stored user if refresh fails
-        setUser(storedUser);
+        return;
       }
 
-      setIsLoading(false);
+      // Tokens exist — verify them by hitting the profile endpoint.
+      // Triggers auto-refresh if expired; throws only when refresh fails.
+      try {
+        await apiClient.get(ENDPOINTS.STORE.PROFILE);
+
+        if (!cancelled) {
+          // Token is good. Keep stored user (identity doesn't change on refresh).
+          setUser(storedUser);
+        }
+      } catch (err) {
+        if (cancelled) return;
+
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          // Refresh chain exhausted — session is dead
+          clearTokens();
+          setUser(null);
+        } else {
+          // Server / network hiccup — keep the stored user so UI stays alive
+          setUser(storedUser);
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
     };
 
     initSession();
-  }, [refreshToken]);
 
-  // ============================================
-  // Periodic token refresh (every 10 minutes)
-  // ============================================
-  useEffect(() => {
-    if (!user) return;
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-    const interval = setInterval(async () => {
-      const newToken = await refreshToken();
-      if (!newToken) {
-        console.warn("Periodic token refresh failed");
-      }
-    }, 10 * 60 * 1000); // 10 minutes
-
-    return () => clearInterval(interval);
-  }, [user, refreshToken]);
-
-  // ============================================
+  // ══════════════════════════════════════════════════════════════════
   // LOGIN
-  // ============================================
+  // ══════════════════════════════════════════════════════════════════
   const login = useCallback(
     async (credentials: LoginCredentials): Promise<void> => {
       setError(null);
-      const response = await fetch(getApiUrl(ENDPOINTS.AUTH.LOGIN), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phoneNumber: credentials.phoneNumber.trim(),
-          password: credentials.password,
-          role: 2,
-        }),
-      });
 
-      const responseData = await response.json();
+      try {
+        const { data } = await apiClient.post<AuthResponseDto>(
+          ENDPOINTS.AUTH.LOGIN,
+          {
+            phoneNumber: credentials.phoneNumber.trim(),
+            password: credentials.password,
+            role: "StoreOwner", // string — matches UserRole union
+          },
+          true, // skipAuth — we're not authenticated yet
+        );
 
-      if (!response.ok || responseData.success === false) {
+        if (!data.token || !data.refreshToken) {
+          throw new Error("لم يتم استلام رمز الوصول من الخادم");
+        }
+
+        storeTokens({
+          accessToken: data.token,
+          refreshToken: data.refreshToken,
+        });
+
+        const newUser = mapAuthResponseToUser(data, credentials.phoneNumber);
+        storeUser(newUser);
+        setUser(newUser);
+      } catch (err) {
         const message =
-          responseData?.message || responseData?.title || "فشل تسجيل الدخول";
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "فشل تسجيل الدخول";
         setError(message);
-        throw new Error(message);
+        throw err;
       }
-
-      const tokens = extractTokens(responseData);
-      if (!tokens) {
-        const message = "لم يتم استلام رمز الوصول من الخادم";
-        setError(message);
-        throw new Error(message);
-      }
-
-      storeTokens(tokens);
-      const newUser = buildStoreOwner(responseData, credentials.phoneNumber);
-      storeUser(newUser);
-      setUser(newUser);
     },
     [],
   );
 
-  // ============================================
-  // SUBMIT STORE REGISTRATION REQUEST
-  // ============================================
-  const submitStoreRequest = useCallback(
-    async (credentials: StoreRequestCredentials): Promise<void> => {
+  // ══════════════════════════════════════════════════════════════════
+  // SEND OTP (login flow — not registration)
+  // ══════════════════════════════════════════════════════════════════
+  const sendOtp = useCallback(
+    async (credentials: SendOtpCredentials): Promise<void> => {
       setError(null);
-      const response = await fetch(getApiUrl(ENDPOINTS.REQUESTS), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: credentials.name,
-          phoneNumber: credentials.phoneNumber.trim(),
-          email: credentials.email || "",
-          address: credentials.address || "",
-          city: credentials.city || "",
-          prandName: credentials.prandName || "",
-          note: credentials.note || "",
-          types: credentials.types,
-        }),
-      });
 
-      const data = await response.json();
-      if (!response.ok || data.success === false) {
-        const message = data?.message || data?.title || "فشل إرسال الطلب";
+      try {
+        await apiClient.post(
+          ENDPOINTS.AUTH.SEND_OTP,
+          {
+            phoneNumber: credentials.phoneNumber.trim(),
+            role: "StoreOwner",
+          },
+          true, // skipAuth
+        );
+      } catch (err) {
+        const message =
+          err instanceof ApiError ? err.message : "فشل إرسال رمز التحقق";
         setError(message);
-        throw new Error(message);
+        throw err;
       }
     },
     [],
   );
 
-  // ============================================
+  // ══════════════════════════════════════════════════════════════════
+  // VERIFY OTP (login flow — returns AuthResponseDto on success)
+  // ══════════════════════════════════════════════════════════════════
+  const verifyOtp = useCallback(
+    async (credentials: VerifyOtpCredentials): Promise<boolean> => {
+      setError(null);
+
+      try {
+        const { data } = await apiClient.post<AuthResponseDto>(
+          ENDPOINTS.AUTH.VERIFY_OTP,
+          {
+            phoneNumber: credentials.phoneNumber.trim(),
+            code: credentials.code,
+            role: "StoreOwner",
+          },
+          true, // skipAuth
+        );
+
+        if (!data.token || !data.refreshToken) {
+          return false; // No session issued
+        }
+
+        storeTokens({
+          accessToken: data.token,
+          refreshToken: data.refreshToken,
+        });
+
+        const newUser = mapAuthResponseToUser(data, credentials.phoneNumber);
+        storeUser(newUser);
+        setUser(newUser);
+        return true;
+      } catch (err) {
+        const message =
+          err instanceof ApiError ? err.message : "فشل التحقق من الرمز";
+        setError(message);
+        throw err;
+      }
+    },
+    [],
+  );
+
+  // ══════════════════════════════════════════════════════════════════
+  // SUBMIT STORE REQUEST — endpoint not yet shipped
+  // Kept in the interface so existing callers don't break; fails clearly.
+  // ══════════════════════════════════════════════════════════════════
+  const submitStoreRequest = useCallback(
+    async (_credentials: StoreRequestCredentials): Promise<void> => {
+      const message =
+        "خدمة طلب إنشاء المتجر غير متاحة حالياً. يرجى التواصل مع الدعم.";
+      setError(message);
+      throw new Error(message);
+    },
+    [],
+  );
+
+  // ══════════════════════════════════════════════════════════════════
   // LOGOUT
-  // ============================================
+  // ══════════════════════════════════════════════════════════════════
   const logout = useCallback(() => {
+    // Best-effort server-side logout (ignores failures — token will expire anyway)
+    apiClient.post(ENDPOINTS.AUTH.LOGOUT).catch(() => undefined);
+
     clearTokens();
     setUser(null);
     setError(null);
   }, []);
 
-  // ============================================
-  // SEND OTP
-  // ============================================
-  const sendOtp = useCallback(
-    async (credentials: SendOtpCredentials): Promise<void> => {
-      setError(null);
-      const response = await fetch(getApiUrl(ENDPOINTS.AUTH.SEND_OTP), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phoneNumber: credentials.phoneNumber.trim(),
-          role: 2,
-        }),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => null);
-        const message =
-          data?.Message || data?.message || data?.title || "فشل إرسال رمز التحقق";
-        setError(message);
-        throw new Error(message);
-      }
-    },
-    [],
-  );
-
-  // ============================================
-  // VERIFY OTP
-  // ============================================
-  const verifyOtp = useCallback(
-    async (credentials: VerifyOtpCredentials): Promise<boolean> => {
-      setError(null);
-      const response = await fetch(getApiUrl(ENDPOINTS.AUTH.VERIFY_OTP), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phoneNumber: credentials.phoneNumber.trim(),
-          code: credentials.code,
-          role: 2,
-        }),
-      });
-
-      const responseData = await response.json().catch(() => null);
-
-      if (!response.ok || responseData?.success === false) {
-        const message =
-          responseData?.message || responseData?.Message || responseData?.title || "فشل التحقق من الرمز";
-        setError(message);
-        throw new Error(message);
-      }
-
-      const tokens = extractTokens(responseData);
-      if (tokens) {
-        storeTokens(tokens);
-        const newUser = buildStoreOwner(responseData, credentials.phoneNumber);
-        storeUser(newUser);
-        setUser(newUser);
-        return true;
-      }
-
-      return false;
-    },
-    [],
-  );
-
-  // ============================================
-  // Derived State
-  // ============================================
+  // ══════════════════════════════════════════════════════════════════
+  // Derived state
+  // ══════════════════════════════════════════════════════════════════
   const isAuthenticated = user !== null;
 
   const contextValue = useMemo<AuthContextValue>(
@@ -525,7 +404,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       error,
       clearError,
     }),
-    [user, isLoading, isAuthenticated, login, submitStoreRequest, logout, sendOtp, verifyOtp, getAccessToken, refreshToken, error, clearError],
+    [
+      user,
+      isLoading,
+      isAuthenticated,
+      login,
+      submitStoreRequest,
+      logout,
+      sendOtp,
+      verifyOtp,
+      getAccessToken,
+      refreshToken,
+      error,
+      clearError,
+    ],
   );
 
   return (

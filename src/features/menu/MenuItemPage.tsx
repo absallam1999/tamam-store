@@ -4,13 +4,15 @@ import { useLanguage } from "@/shared/hooks/useLanguage";
 import { useToast } from "@shared/components/Toaster";
 import { cn } from "@shared/utils/cn";
 import { translateText } from "@shared/utils/translate";
-import { ENDPOINTS } from "@/config/api";
+import { storeApi } from "@/config/store.api";
 import { useMenuCategories } from "@shared/hooks/useMenuCategories";
 import {
   useProduct,
   useCreateProduct,
   useUpdateProduct,
   useDeleteProduct,
+  useSetProductAvailability,
+  useSetProductFeatured,
   useProductOptions,
   useCreateProductOption,
   useDeleteProductOption,
@@ -20,7 +22,7 @@ import { useStore } from "@/app/providers/StoreProvider";
 import type {
   CreateProductDto,
   UpdateProductDto,
-  ProductOptionGroupDto,
+  ProductOptionDto,
   CreateProductOptionDto,
   CreateProductOptionValueDto,
 } from "@shared/types";
@@ -43,7 +45,6 @@ interface MenuItemForm {
   sku?: string;
   barcode?: string;
   imageUrl?: string;
-  lowStockThreshold?: number;
 }
 
 interface LocalOptionGroup extends CreateProductOptionDto {
@@ -98,10 +99,6 @@ const t = {
   featured: { ar: "منتج مميز", en: "Featured Product" },
   sku: { ar: "SKU (اختياري)", en: "SKU (optional)" },
   barcode: { ar: "باركود (اختياري)", en: "Barcode (optional)" },
-  lowStockThreshold: {
-    ar: "حد التنبيه للمخزون (اختياري)",
-    en: "Low Stock Threshold (optional)",
-  },
   save: { ar: "حفظ", en: "Save" },
   saving: { ar: "جاري الحفظ...", en: "Saving..." },
   addItem: { ar: "إضافة المنتج", en: "Add Item" },
@@ -253,39 +250,23 @@ export const MenuItemPage: React.FC = () => {
   const isNew = !itemId || itemId === "new";
   const isEdit = !isNew;
 
-  const fixImageUrl = (url: string | undefined): string | undefined => {
-    if (!url) return undefined;
-    let fixed = url.replace(/\/uploads\//g, "/");
-    fixed = fixed.replace(/\/Store\//g, "/stores/");
-    fixed = fixed.replace(/^Store\//, "stores/");
-    if (fixed.startsWith("http://") || fixed.startsWith("https://")) {
-      return fixed;
-    }
-    if (fixed.startsWith("/")) {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-      return `${baseUrl}${fixed}`;
-    }
-    if (store?.id) {
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-      const cleanFileName = fixed.replace(/^.*\//, "");
-      return `${baseUrl}/stores/${store.id}/products/${cleanFileName}`;
-    }
-    return fixed;
-  };
-
-  const { data: categories = [], isLoading: categoriesLoading } =
+  const { data: categoriesData, isLoading: categoriesLoading } =
     useMenuCategories();
+  const categories = categoriesData ?? [];
+
   const { data: existingProduct, isLoading: productLoading } = useProduct(
-    isEdit ? itemId! : "",
+    isEdit ? itemId : undefined,
   );
   const { data: existingOptions = [], isLoading: optionsLoading } =
-    useProductOptions(isEdit ? itemId! : "");
+    useProductOptions(isEdit ? itemId : undefined);
 
   const createProduct = useCreateProduct();
-  const updateProduct = useUpdateProduct(isEdit ? itemId! : "");
+  const updateProduct = useUpdateProduct(); // ← no id in hook
   const deleteProduct = useDeleteProduct();
+  const setAvailability = useSetProductAvailability();
+  const setFeatured = useSetProductFeatured();
 
-  const createOption = useCreateProductOption(isEdit ? itemId! : "");
+  const createOption = useCreateProductOption(); // ← no id in hook
   const deleteOption = useDeleteProductOption();
 
   const isLoading =
@@ -294,7 +275,9 @@ export const MenuItemPage: React.FC = () => {
     createProduct.isPending ||
     updateProduct.isPending ||
     createOption.isPending ||
-    deleteOption.isPending;
+    deleteOption.isPending ||
+    setAvailability.isPending ||
+    setFeatured.isPending;
   const isDeleting = deleteProduct.isPending;
 
   const [form, setForm] = useState<MenuItemForm>({
@@ -307,7 +290,6 @@ export const MenuItemPage: React.FC = () => {
     isAvailable: true,
     isFeatured: false,
     preparationTimeMinutes: 15,
-    lowStockThreshold: undefined,
   });
 
   const [options, setOptions] = useState<LocalOptionGroup[]>([]);
@@ -317,14 +299,6 @@ export const MenuItemPage: React.FC = () => {
 
   useEffect(() => {
     if (isEdit && existingProduct) {
-      const fixedImageUrl = existingProduct.imageUrl
-        ? getProductImage(
-            { id: existingProduct.id, imageUrl: existingProduct.imageUrl },
-            store?.id,
-            "medium",
-          )
-        : undefined;
-
       setForm({
         nameAr: existingProduct.nameAr || "",
         nameEn: existingProduct.nameEn || "",
@@ -338,25 +312,24 @@ export const MenuItemPage: React.FC = () => {
         preparationTimeMinutes: existingProduct.preparationTimeMinutes || 15,
         sku: existingProduct.sku,
         barcode: existingProduct.barcode,
-        imageUrl: fixedImageUrl,
-        lowStockThreshold: existingProduct.lowStockThreshold,
+        imageUrl: existingProduct.imageUrl,
       });
     }
-  }, [isEdit, existingProduct, store?.id]);
+  }, [isEdit, existingProduct]);
 
   useEffect(() => {
     if (isEdit && existingOptions.length > 0) {
       const localOptions: LocalOptionGroup[] = existingOptions.map((group) => ({
         id: group.id,
-        nameAr: group.nameAr,
-        nameEn: group.nameEn,
+        nameAr: group.nameAr ?? "",
+        nameEn: group.nameEn ?? "",
         isRequired: group.isRequired,
         isMultiple: group.isMultiple,
         displayOrder: group.displayOrder || 0,
-        values: group.values.map((v) => ({
+        values: (group.values ?? []).map((v) => ({
           id: v.id,
-          nameAr: v.nameAr,
-          nameEn: v.nameEn,
+          nameAr: v.nameAr ?? "",
+          nameEn: v.nameEn ?? "",
           additionalPrice: v.additionalPrice || 0,
           isDefault: v.isDefault || false,
           displayOrder: v.displayOrder || 0,
@@ -456,6 +429,7 @@ export const MenuItemPage: React.FC = () => {
     });
   };
 
+  // ── Image upload via the generic files endpoint ──
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -472,47 +446,12 @@ export const MenuItemPage: React.FC = () => {
 
     setIsUploading(true);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-      let imageUrl: string | undefined;
-
-      if (isEdit && itemId) {
-        const response = await fetch(
-          `${baseUrl}${ENDPOINTS.STORE.PRODUCT_IMAGE(itemId)}`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("store-access-token")}`,
-            },
-            body: formData,
-          },
-        );
-        const result = await response.json();
-        imageUrl = result?.data?.url || result?.url;
-      } else {
-        const response = await fetch(
-          `${baseUrl}${ENDPOINTS.UPLOAD.IMAGE}?folder=products`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("store-access-token")}`,
-            },
-            body: formData,
-          },
-        );
-        const result = await response.json();
-        imageUrl = result?.data?.url || result?.url;
-      }
-
-      if (imageUrl) {
-        const fixedUrl = fixImageUrl(imageUrl);
-        updateField("imageUrl", fixedUrl || imageUrl);
-      }
+      const uploaded = await storeApi.files.upload(file, "product-images");
+      updateField("imageUrl", uploaded.url);
       toast.success(lang(t.uploadSuccess));
-    } catch {
-      toast.error(lang(t.uploadError));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : lang(t.uploadError);
+      toast.error(message);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -588,6 +527,7 @@ export const MenuItemPage: React.FC = () => {
 
     try {
       if (isNew) {
+        // ── 1. Create product ─────────────────────────────────────
         const dto: CreateProductDto = {
           menuCategoryId: form.menuCategoryId,
           nameAr: form.nameAr,
@@ -595,82 +535,21 @@ export const MenuItemPage: React.FC = () => {
           descriptionAr: form.descriptionAr || undefined,
           descriptionEn: form.descriptionEn || undefined,
           price: form.price,
-          discountedPrice: form.discountedPrice,
-          preparationTimeMinutes: Number(form.preparationTimeMinutes) || 15,
-          sku: form.sku,
-          barcode: form.barcode,
-          stockQuantity: 0,
-          lowStockThreshold: form.lowStockThreshold,
-          imageUrl: form.imageUrl,
-          options:
-            options.length > 0
-              ? options.map((g) => ({
-                  nameAr: g.nameAr,
-                  nameEn: g.nameEn,
-                  isRequired: g.isRequired,
-                  isMultiple: g.isMultiple,
-                  displayOrder: g.displayOrder,
-                  values: g.values.map((v) => ({
-                    nameAr: v.nameAr,
-                    nameEn: v.nameEn,
-                    additionalPrice: Number(v.additionalPrice) || 0,
-                    isDefault: Boolean(v.isDefault),
-                    displayOrder: Number(v.displayOrder) || 0,
-                  })),
-                }))
-              : undefined,
-        };
-        await createProduct.mutateAsync(dto);
-        toast.success(lang(t.addSuccess));
-      } else {
-        const dto: UpdateProductDto = {
-          nameAr: form.nameAr,
-          nameEn: form.nameEn,
-          descriptionAr: form.descriptionAr || undefined,
-          descriptionEn: form.descriptionEn || undefined,
-          price: form.price,
-          discountedPrice: form.discountedPrice,
           preparationTimeMinutes: Number(form.preparationTimeMinutes) || 15,
           isAvailable: form.isAvailable,
           isFeatured: form.isFeatured,
           sku: form.sku,
           barcode: form.barcode,
-          stockQuantity: existingProduct?.stockQuantity ?? 0,
-          lowStockThreshold: form.lowStockThreshold,
           imageUrl: form.imageUrl,
         };
-        await updateProduct.mutateAsync(dto);
 
-        // Convert existing options to comparable LocalOptionGroup format
-        const existingLocalOptions: LocalOptionGroup[] = existingOptions.map(
-          (group) => ({
-            id: group.id,
-            nameAr: group.nameAr,
-            nameEn: group.nameEn,
-            isRequired: group.isRequired,
-            isMultiple: group.isMultiple,
-            displayOrder: group.displayOrder || 0,
-            values: group.values.map((v) => ({
-              id: v.id,
-              nameAr: v.nameAr,
-              nameEn: v.nameEn,
-              additionalPrice: v.additionalPrice || 0,
-              isDefault: v.isDefault || false,
-              displayOrder: v.displayOrder || 0,
-            })),
-          }),
-        );
+        const created = await createProduct.mutateAsync(dto);
 
-        const optionsChanged = !areOptionsEqual(existingLocalOptions, options);
-
-        if (optionsChanged) {
-          // Delete old groups
-          for (const group of existingOptions) {
-            await deleteOption.mutateAsync(group.id);
-          }
-          // Create new groups
-          for (const group of options) {
-            await createOption.mutateAsync({
+        // ── 2. Create options against the new product ─────────────
+        for (const group of options) {
+          await createOption.mutateAsync({
+            productId: created.id,
+            dto: {
               nameAr: group.nameAr,
               nameEn: group.nameEn,
               isRequired: group.isRequired,
@@ -683,20 +562,94 @@ export const MenuItemPage: React.FC = () => {
                 isDefault: Boolean(v.isDefault),
                 displayOrder: Number(v.displayOrder) || 0,
               })),
+            },
+          });
+        }
+
+        toast.success(lang(t.addSuccess));
+      } else {
+        // ── 1. Update product core fields ─────────────────────────
+        const dto: UpdateProductDto = {
+          nameAr: form.nameAr,
+          nameEn: form.nameEn,
+          descriptionAr: form.descriptionAr || undefined,
+          descriptionEn: form.descriptionEn || undefined,
+          price: form.price,
+          preparationTimeMinutes: Number(form.preparationTimeMinutes) || 15,
+          sku: form.sku,
+          barcode: form.barcode,
+          imageUrl: form.imageUrl,
+        };
+
+        await updateProduct.mutateAsync({ productId: itemId!, dto });
+
+        // ── 2. isAvailable / isFeatured via dedicated PATCH endpoints
+        if (existingProduct && existingProduct.isAvailable !== form.isAvailable) {
+          await setAvailability.mutateAsync({
+            productId: itemId!,
+            isAvailable: form.isAvailable,
+          });
+        }
+        if (existingProduct && existingProduct.isFeatured !== form.isFeatured) {
+          await setFeatured.mutateAsync({
+            productId: itemId!,
+            isFeatured: form.isFeatured,
+          });
+        }
+
+        // ── 3. Options diff ───────────────────────────────────────
+        const existingLocalOptions: LocalOptionGroup[] = existingOptions.map(
+          (group) => ({
+            id: group.id,
+            nameAr: group.nameAr ?? "",
+            nameEn: group.nameEn ?? "",
+            isRequired: group.isRequired,
+            isMultiple: group.isMultiple,
+            displayOrder: group.displayOrder || 0,
+            values: (group.values ?? []).map((v) => ({
+              id: v.id,
+              nameAr: v.nameAr ?? "",
+              nameEn: v.nameEn ?? "",
+              additionalPrice: v.additionalPrice || 0,
+              isDefault: v.isDefault || false,
+              displayOrder: v.displayOrder || 0,
+            })),
+          }),
+        );
+
+        const optionsChanged = !areOptionsEqual(existingLocalOptions, options);
+
+        if (optionsChanged) {
+          for (const group of existingOptions) {
+            await deleteOption.mutateAsync(group.id);
+          }
+          for (const group of options) {
+            await createOption.mutateAsync({
+              productId: itemId!,
+              dto: {
+                nameAr: group.nameAr,
+                nameEn: group.nameEn,
+                isRequired: group.isRequired,
+                isMultiple: group.isMultiple,
+                displayOrder: group.displayOrder,
+                values: group.values.map((v) => ({
+                  nameAr: v.nameAr,
+                  nameEn: v.nameEn,
+                  additionalPrice: Number(v.additionalPrice) || 0,
+                  isDefault: Boolean(v.isDefault),
+                  displayOrder: Number(v.displayOrder) || 0,
+                })),
+              },
             });
           }
         }
+
         toast.success(lang(t.updateSuccess));
       }
       navigate("/dashboard/menu");
     } catch (err) {
       const message = err instanceof Error ? err.message : lang(t.saveError);
-      // Try to extract more detail from the server response
-      const detail =
-        (err as any)?.response?.data?.Message ||
-        (err as any)?.response?.data?.message ||
-        (err as any)?.response?.data?.title;
-      toast.error(detail || message);
+      toast.error(message);
     }
   };
 
@@ -1362,7 +1315,6 @@ export const MenuItemPage: React.FC = () => {
 
         {/* Options */}
         <div className="bg-white dark:bg-surface-900 rounded-3xl border border-surface-200 dark:border-surface-800 shadow-sm overflow-hidden">
-          {/* Header */}
           <div className="flex items-center justify-between gap-4 px-6 sm:px-8 py-5 bg-gradient-to-r from-success-50/50 to-transparent dark:from-success-500/5 border-b border-surface-100 dark:border-surface-800">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-success-500 to-success-600 dark:from-success-400 dark:to-success-500 flex items-center justify-center shadow-lg shadow-success-500/20">
@@ -1411,7 +1363,6 @@ export const MenuItemPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Content */}
           <div className="p-6 sm:p-8">
             {options.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -1452,7 +1403,6 @@ export const MenuItemPage: React.FC = () => {
                       key={groupIndex}
                       className="group-option bg-surface-50/50 dark:bg-surface-800/30 border border-surface-200 dark:border-surface-700 rounded-2xl overflow-hidden transition-all duration-200 hover:border-success-200 dark:hover:border-success-800"
                     >
-                      {/* Option Group Header */}
                       <div className="flex items-center justify-between gap-4 px-5 py-4 bg-white/50 dark:bg-surface-800/50 border-b border-surface-100 dark:border-surface-800">
                         <div className="flex items-center gap-3">
                           <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-success-100 dark:bg-success-500/10 text-success-600 dark:text-success-400 text-xs font-bold">
@@ -1486,9 +1436,7 @@ export const MenuItemPage: React.FC = () => {
                         </button>
                       </div>
 
-                      {/* Option Group Body */}
                       <div className="p-5 space-y-5">
-                        {/* Name Fields */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
@@ -1538,7 +1486,6 @@ export const MenuItemPage: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Settings Row */}
                         <div className="flex flex-wrap items-center gap-4 pt-1">
                           <label className="flex items-center gap-2.5 cursor-pointer select-none group/check">
                             <input
@@ -1644,7 +1591,6 @@ export const MenuItemPage: React.FC = () => {
                           </div>
                         </div>
 
-                        {/* Values Section */}
                         <div className="space-y-3 pt-3 border-t border-surface-200/60 dark:border-surface-700/60">
                           <div className="flex items-center justify-between">
                             <h5 className="text-sm font-medium text-surface-700 dark:text-surface-300">
@@ -1688,7 +1634,6 @@ export const MenuItemPage: React.FC = () => {
                                   key={valueIndex}
                                   className="flex flex-wrap items-center gap-3 p-4 bg-white dark:bg-surface-800/50 rounded-xl border border-surface-200 dark:border-surface-700 hover:border-success-200 dark:hover:border-success-800 transition-all duration-200"
                                 >
-                                  {/* Value Name AR */}
                                   <div className="flex-1 min-w-[100px]">
                                     <label className="block text-[10px] font-medium text-surface-500 dark:text-surface-400 mb-0.5 uppercase tracking-wider">
                                       {lang(t.valueNameAr)}
@@ -1719,7 +1664,6 @@ export const MenuItemPage: React.FC = () => {
                                     />
                                   </div>
 
-                                  {/* Value Name EN */}
                                   <div className="flex-1 min-w-[100px]">
                                     <label className="block text-[10px] font-medium text-surface-500 dark:text-surface-400 mb-0.5 uppercase tracking-wider">
                                       {lang(t.valueNameEn)}
@@ -1750,7 +1694,6 @@ export const MenuItemPage: React.FC = () => {
                                     />
                                   </div>
 
-                                  {/* Price */}
                                   <div className="w-24">
                                     <label className="block text-[10px] font-medium text-surface-500 dark:text-surface-400 mb-0.5 uppercase tracking-wider">
                                       {lang(t.valueAdditionalPrice)}
@@ -1778,7 +1721,6 @@ export const MenuItemPage: React.FC = () => {
                                     />
                                   </div>
 
-                                  {/* Order */}
                                   <div className="w-16">
                                     <label className="block text-[10px] font-medium text-surface-500 dark:text-surface-400 mb-0.5 uppercase tracking-wider">
                                       {lang(t.displayOrder)}
@@ -1802,7 +1744,6 @@ export const MenuItemPage: React.FC = () => {
                                     />
                                   </div>
 
-                                  {/* Default */}
                                   <div className="flex items-center">
                                     <label className="flex items-center gap-1.5 cursor-pointer select-none group/check">
                                       <input
@@ -1848,7 +1789,6 @@ export const MenuItemPage: React.FC = () => {
                                     </label>
                                   </div>
 
-                                  {/* Remove */}
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -2003,29 +1943,6 @@ export const MenuItemPage: React.FC = () => {
                   }
                   className={inputClasses(false)}
                   placeholder="6221234567890"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div className="space-y-1.5">
-                <label className="block text-xs font-semibold text-surface-600 dark:text-surface-400 mb-1.5">
-                  {lang(t.lowStockThreshold)}{" "}
-                  <span className="font-normal text-surface-400">
-                    ({lang(t.optional)})
-                  </span>
-                </label>
-                <input
-                  type="number"
-                  value={form.lowStockThreshold || ""}
-                  onChange={(e) =>
-                    updateField(
-                      "lowStockThreshold",
-                      e.target.value ? Number(e.target.value) : undefined,
-                    )
-                  }
-                  min="0"
-                  className={inputClasses(false)}
-                  placeholder="5"
                 />
               </div>
             </div>
