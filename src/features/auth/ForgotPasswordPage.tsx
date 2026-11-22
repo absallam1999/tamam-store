@@ -128,7 +128,6 @@ const t = {
   verify: { ar: "تأكيد", en: "Verify" },
   verifying: { ar: "جاري التحقق...", en: "Verifying..." },
   resendCode: { ar: "إعادة إرسال الرمز", en: "Resend code" },
-  changePhone: { ar: "تغيير رقم الهاتف", en: "Change phone number" },
   codeSentSuccess: { ar: "تم إرسال رمز التحقق", en: "Verification code sent" },
 
   // Success
@@ -745,20 +744,7 @@ export const ForgotPasswordPage: React.FC = () => {
             {fieldError}
           </p>
         )}
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => {
-              setStep("phone");
-              setOtp(["", "", "", "", "", ""]);
-              setError(null);
-              setFieldError(null);
-            }}
-            disabled={isSubmitting}
-            className="text-sm text-surface-500 dark:text-surface-400 hover:text-surface-700 dark:hover:text-surface-300 transition-colors"
-          >
-            {lang(t.changePhone)}
-          </button>
+        <div className="flex items-center justify-center">
           <button
             type="button"
             onClick={handleResend}

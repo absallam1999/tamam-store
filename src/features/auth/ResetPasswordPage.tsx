@@ -81,7 +81,6 @@ const t = {
   hidePassword: { ar: "إخفاء كلمة المرور", en: "Hide password" },
   submit: { ar: "تغيير كلمة المرور", en: "Change Password" },
   submitting: { ar: "جاري تغيير كلمة المرور...", en: "Changing password..." },
-  backToLogin: { ar: "العودة إلى تسجيل الدخول", en: "Back to Sign In" },
   skip: { ar: "تخطي والدخول للوحة التحكم", en: "Skip to Dashboard" },
   passwordMatch: { ar: "كلمة المرور متطابقة ✓", en: "Passwords match ✓" },
   strengthLabel: { ar: "قوة كلمة المرور:", en: "Password strength:" },
@@ -299,12 +298,6 @@ export const ResetPasswordPage: React.FC = () => {
           >
             {lang(t.skip)}
           </button>
-          <Link
-            to="/auth/login"
-            className="block w-full py-3 px-6 rounded-xl text-center font-medium text-sm bg-surface-100 dark:bg-surface-800 text-surface-600 dark:text-surface-400 hover:bg-surface-200 dark:hover:bg-surface-700 transition-colors"
-          >
-            {lang(t.backToLogin)}
-          </Link>
         </div>
       </div>
     );
@@ -668,15 +661,6 @@ export const ResetPasswordPage: React.FC = () => {
           </button>
         </div>
       </form>
-
-      <p className="mt-6 text-center text-sm text-surface-500 dark:text-surface-400">
-        <Link
-          to="/auth/login"
-          className="text-primary-600 dark:text-primary-400 hover:underline font-medium"
-        >
-          {lang(t.backToLogin)}
-        </Link>
-      </p>
     </div>
   );
 };

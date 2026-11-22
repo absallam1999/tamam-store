@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { storeApi } from "@/config/store.api";
 import type {
   CategoryWithTypesDto,
-  StoreCategoryDto,
+  PublicStoreCategoryDto,
   StoreTypeListDto,
   StoreTypeProfileDto,
 } from "@shared/types";
@@ -22,9 +22,6 @@ export const PUBLIC_STORE_CATEGORIES_KEY = "publicStoreCategories";
 // Queries
 // ============================================================
 
-/**
- * GET /api/store/type-applications — my approved + pending applications.
- */
 export function useMyTypeApplications() {
   return useQuery<StoreTypeProfileDto[]>({
     queryKey: [STORE_TYPES_KEY],
@@ -33,9 +30,6 @@ export function useMyTypeApplications() {
   });
 }
 
-/**
- * GET /api/store-types/active[?categoryId=] — browseable store types.
- */
 export function useAvailableStoreTypes(categoryId?: string) {
   return useQuery<StoreTypeListDto[]>({
     queryKey: [AVAILABLE_STORE_TYPES_KEY, categoryId ?? null],
@@ -47,9 +41,6 @@ export function useAvailableStoreTypes(categoryId?: string) {
   });
 }
 
-/**
- * GET /api/store-types/grouped-by-category — for a category-first picker.
- */
 export function useGroupedStoreTypes() {
   return useQuery<CategoryWithTypesDto[]>({
     queryKey: [GROUPED_STORE_TYPES_KEY],
@@ -59,12 +50,13 @@ export function useGroupedStoreTypes() {
 }
 
 /**
- * GET /api/browse/store-categories — public store categories
+ * GET /api/browse/store-categories
  */
 export function usePublicStoreCategories() {
-  return useQuery<StoreCategoryDto[]>({
+  return useQuery<PublicStoreCategoryDto[]>({
     queryKey: [PUBLIC_STORE_CATEGORIES_KEY],
-    queryFn: () => storeApi.storeTypes.getCategories(),
+    queryFn: () =>
+      storeApi.storeTypes.getCategories() as Promise<PublicStoreCategoryDto[]>,
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -86,9 +78,6 @@ export function useAddStoreType() {
   });
 }
 
-/**
- * DELETE /api/store/type-applications/{mappingId}
- */
 export function useRemoveStoreType() {
   const qc = useQueryClient();
   return useMutation<void, Error, string>({

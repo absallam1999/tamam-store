@@ -42,6 +42,15 @@ const t = {
   hidePassword: { ar: "إخفاء كلمة المرور", en: "Hide password" },
   successMessage: { ar: "تم تسجيل الدخول بنجاح", en: "Successfully signed in" },
   errorMessage: { ar: "فشل تسجيل الدخول", en: "Login failed" },
+  noAccount: {
+    ar: "ليس لديك حساب؟",
+    en: "Don't have an account?",
+  },
+  register: {
+    ar: "سجّل كمتجر",
+    en: "Register as store",
+  },
+  orDivider: { ar: "أو", en: "or" },
   validation: {
     phoneNumberRequired: {
       ar: "رقم الهاتف مطلوب",
@@ -530,6 +539,36 @@ export const LoginPage: React.FC = () => {
             </>
           )}
         </button>
+
+        <div className="relative pt-2">
+          <div className="absolute inset-0 flex items-center" aria-hidden="true">
+            <div className="w-full border-t border-surface-200 dark:border-surface-700" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-surface-50 dark:bg-surface-950 px-3 text-xs font-medium uppercase tracking-wider text-surface-400 dark:text-surface-500">
+              {lang(t.orDivider)}
+            </span>
+          </div>
+        </div>
+
+        <div className="text-center">
+          <p className="text-sm text-surface-500 dark:text-surface-400">
+            {lang(t.noAccount)}{" "}
+            <Link
+              to="/auth/register"
+              className={cn(
+                "font-semibold",
+                "text-primary-600 dark:text-primary-400",
+                "hover:text-primary-700 dark:hover:text-primary-300",
+                "hover:underline underline-offset-2",
+                "transition-colors",
+              )}
+            >
+              {lang(t.register)}
+            </Link>
+          </p>
+        </div>
+
       </form>
     </div>
   );

@@ -8,9 +8,9 @@
 
 export interface ApiResponse<T> {
   success: boolean;
-  message?: string | null;
+  message: string | null;
   data: T;
-  errors?: string[];
+  errors: string[];
 }
 
 export interface PagedResult<T> {
@@ -26,7 +26,7 @@ export interface PagedResult<T> {
 export type PaginatedResponse<T> = PagedResult<T>;
 
 // ═════════════════════════════════════════════════════════════════════
-// Enums — all string-valued (JsonStringEnumConverter)
+// Enums
 // ═════════════════════════════════════════════════════════════════════
 
 export type UserRole =
@@ -70,7 +70,7 @@ export type CouponApprovalStatus = "Pending" | "Approved" | "Rejected";
 
 export type StoreVerificationStatus =
   | "Pending"
-  | "Approved"
+  | "Verified"
   | "Rejected"
   | "Suspended";
 
@@ -84,7 +84,6 @@ export type WithdrawalStatus =
   | "Completed"
   | "Cancelled";
 
-/** System.DayOfWeek order — Sunday = 0. String-serialized on the wire. */
 export type DayOfWeek =
   | "Sunday"
   | "Monday"
@@ -95,7 +94,7 @@ export type DayOfWeek =
   | "Saturday";
 
 // ═════════════════════════════════════════════════════════════════════
-// Files — generic upload
+// Files
 // ═════════════════════════════════════════════════════════════════════
 
 export type FileCategory =
@@ -136,7 +135,7 @@ export interface FileInfoDto {
 export interface LoginDto {
   phoneNumber: string;
   password: string;
-  role?: UserRole; // StoreOwner for this dashboard
+  role?: UserRole;
 }
 
 export interface SendOtpDto {
@@ -150,7 +149,6 @@ export interface VerifyOtpDto {
   role?: UserRole;
 }
 
-/** Registration is a two-step flow: send-otp then verify-otp. */
 export interface RegisterOtpDto {
   phoneNumber: string;
   fullName: string;
@@ -186,10 +184,6 @@ export interface SocialLoginDto {
   referralCode?: string;
 }
 
-/**
- * Flat response — the server does NOT nest a `user` object.
- * Every identity field lives at the top level.
- */
 export interface AuthResponseDto {
   userId: string;
   phoneNumber?: string;
@@ -202,21 +196,36 @@ export interface AuthResponseDto {
   isActive: boolean;
 }
 
-/** Admin-only: creates a store + owner account in one call. */
-export interface AdminCreateStoreDto {
+// ═════════════════════════════════════════════════════════════════════
+// Onboarding — Public Submission
+// ═════════════════════════════════════════════════════════════════════
+
+export interface SubmitStoreOnboardingDto {
   phoneNumber: string;
   ownerName: string;
   email?: string;
-  password: string;
+
   storeNameAr: string;
   storeNameEn: string;
   storeDescriptionAr?: string;
   storeDescriptionEn?: string;
   storeStreetAr?: string;
   storeStreetEn?: string;
+
   latitude: number;
   longitude: number;
-  cityId?: string;
+  cityId: string;
+
+  storeCategoryId: string;
+
+  attachmentRelativePath?: string;
+}
+
+
+export interface OnboardingSubmissionResultDto {
+  requestId: string;
+  status: "Pending" | "Approved" | "Rejected";
+  message?: string;
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -242,11 +251,20 @@ export interface StoreProfileDto {
   email?: string;
   logoUrl?: string;
   coverImageUrl?: string;
+
   latitude: number;
   longitude: number;
   streetAr?: string;
   streetEn?: string;
-  city?: string;
+
+  cityId?: string;
+  cityAr?: string;
+  cityEn?: string;
+
+  storeCategoryId?: string;
+  storeCategoryNameAr?: string;
+  storeCategoryNameEn?: string;
+
   isOpen: boolean;
   isBusy: boolean;
   openingTime: string;
@@ -255,6 +273,7 @@ export interface StoreProfileDto {
   deliveryFee: number;
   estimatedPreparationMinutes: number;
   rating: number;
+
   verificationStatus: StoreVerificationStatus;
   approvedTypes?: StoreTypeProfileDto[];
   pendingTypes?: StoreTypeProfileDto[];
@@ -271,7 +290,6 @@ export interface UpdateStoreProfileDto {
   streetAr?: string;
   streetEn?: string;
   cityId?: string;
-  city?: string;
   openingTime?: string;
   closingTime?: string;
   minimumOrderAmount: number;
@@ -281,6 +299,10 @@ export interface UpdateStoreProfileDto {
 
 export interface ToggleStoreOpenDto {
   isOpen: boolean;
+}
+
+export interface ToggleStoreBusyDto {
+  isBusy: boolean;
 }
 
 export interface UpdateStoreImageDto {
@@ -335,10 +357,9 @@ export interface StoreDashboardDto {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Store Types (browse + onboarding)
+// Store Categories & Types
 // ═════════════════════════════════════════════════════════════════════
 
-/** Lightweight shape returned by /api/store-types/active & /popular. */
 export interface StoreTypeListDto {
   id: string;
   nameAr?: string;
@@ -349,7 +370,6 @@ export interface StoreTypeListDto {
   displayOrder: number;
 }
 
-/** Full shape returned by /api/store-types/{id} and admin endpoints. */
 export interface StoreTypeDto {
   id: string;
   storeCategoryId: string;
@@ -372,8 +392,12 @@ export interface CategoryWithTypesDto {
   categoryId: string;
   categoryNameAr?: string;
   categoryNameEn?: string;
+  categoryDescriptionAr?: string;
+  categoryDescriptionEn?: string;
   categoryIconUrl?: string;
+  categoryImageUrl?: string;
   displayOrder: number;
+  isActive: boolean;
   storeTypes?: StoreTypeListDto[];
 }
 
@@ -389,6 +413,54 @@ export interface StoreCategoryDto {
   isActive: boolean;
   storeTypeCount: number;
   createdAt: string;
+  updatedAt?: string;
+}
+
+export interface StoreCategoryListDto {
+  id: string;
+  nameAr?: string;
+  nameEn?: string;
+  iconUrl?: string;
+  displayOrder: number;
+  isActive: boolean;
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Public Browse — Store Categories & Types
+// ═════════════════════════════════════════════════════════════════════
+
+export interface PublicStoreCategoryDto {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  descriptionAr?: string;
+  descriptionEn?: string;
+  iconUrl?: string;
+  imageUrl?: string;
+  displayOrder: number;
+  storeTypeCount: number;
+}
+
+export interface PublicStoreTypeDto {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  iconUrl?: string;
+  imageUrl?: string;
+  displayOrder: number;
+  storeCategoryId: string;
+}
+
+export interface PublicStoreCategoryWithTypesDto {
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  descriptionAr?: string;
+  descriptionEn?: string;
+  iconUrl?: string;
+  imageUrl?: string;
+  displayOrder: number;
+  storeTypes: PublicStoreTypeDto[];
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -405,7 +477,7 @@ export interface MenuCategoryDto {
   imageUrl?: string;
   displayOrder: number;
   isAvailable: boolean;
-  productsCount: number; // ← was `productCount` in the old file
+  productsCount: number;
   createdAt: string;
 }
 
@@ -444,7 +516,7 @@ export interface ProductDto {
   descriptionEn?: string;
   price: number;
   discountedPrice?: number;
-  effectivePrice: number; // read-only — server computes price ?? discountedPrice
+  effectivePrice: number;
   imageUrl?: string;
   preparationTimeMinutes: number;
   isAvailable: boolean;
@@ -458,6 +530,26 @@ export interface ProductDto {
   options?: ProductOptionDto[];
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface ProductBrowseDto {
+  id: string;
+  storeId: string;
+  menuCategoryId?: string;
+  categoryName?: string;
+  nameAr?: string;
+  nameEn?: string;
+  descriptionAr?: string;
+  descriptionEn?: string;
+  price: number;
+  discountedPrice?: number;
+  effectivePrice: number;
+  imageUrl?: string;
+  preparationTimeMinutes?: number;
+  isAvailable: boolean;
+  isFeatured: boolean;
+  rating: number;
+  ratingCount: number;
 }
 
 export interface CreateProductDto {
@@ -617,9 +709,7 @@ export interface CreateOfferDto {
   validFrom: string;
   validTo: string;
   maxUsageCount: number;
-  /** Group deals: item list with quantities. */
   items?: CreateGroupDealItemDto[];
-  /** Standard offers: simple product id list. */
   productIds?: string[];
 }
 
@@ -700,11 +790,28 @@ export interface UpdateCouponDto {
   startTime?: string;
   endTime?: string;
   isActive: boolean;
-  approvalStatus?: CouponApprovalStatus;
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// City Delivery Fees (per-store override)
+// Cities
+// ═════════════════════════════════════════════════════════════════════
+
+export interface CityDto {
+  id: string;
+  nameAr?: string;
+  nameEn?: string;
+  isActive: boolean;
+  createdAt?: string;
+}
+
+export interface CityListDto {
+  id: string;
+  nameAr?: string;
+  nameEn?: string;
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// City Delivery Fees
 // ═════════════════════════════════════════════════════════════════════
 
 export interface StoreCityDeliveryFeeDto {
@@ -762,12 +869,12 @@ export interface StoreOrderDriverDto {
 export interface StoreOrderItemDto {
   id: string;
   productId: string;
-  productName?: string; // ← single field, not AR/EN split
+  productName?: string;
   quantity: number;
   unitPrice: number;
   subtotal: number;
   specialInstructions?: string;
-  options?: string[]; // e.g. ["Size: Large", "Extra cheese"]
+  options?: string[];
 }
 
 export interface StoreOrderDto {
@@ -816,7 +923,7 @@ export interface StoreOrderStatsDto {
 }
 
 export interface UpdateOrderStatusDto {
-  status: OrderStatus | string;
+  status: OrderStatus;
   rejectionReason?: string;
 }
 
@@ -876,12 +983,19 @@ export interface ReviewDto {
   createdAt: string;
 }
 
+export interface ReviewSummaryDto {
+  averageRating: number;
+  totalReviews: number;
+  ratingDistribution?: Record<string, number>;
+  reviews: PagedResult<ReviewDto>;
+}
+
 export interface ReplyToReviewRequest {
   reply: string;
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Wallet (shared — role taken from JWT)
+// Wallet
 // ═════════════════════════════════════════════════════════════════════
 
 export type PaymentConfirmationStatus = "Pending" | "Verified" | "Rejected";
@@ -889,7 +1003,7 @@ export type PaymentConfirmationStatus = "Pending" | "Verified" | "Rejected";
 export interface PaymentNumberDto {
   id: string;
   phoneNumber: string;
-  paymentMethod: PaymentMethod | string;
+  paymentMethod: PaymentMethod;
   label?: string;
   isActive: boolean;
 }
@@ -898,7 +1012,7 @@ export interface SubmitTopUpRequestDto {
   amount: number;
   paymentNumberId: string;
   phoneFrom: string;
-  paymentMethod: PaymentMethod | string;
+  paymentMethod: PaymentMethod;
   screenshotUrl?: string;
   notes?: string;
 }
@@ -908,7 +1022,7 @@ export interface TopUpRequestDto {
   amount: number;
   status: PaymentConfirmationStatus;
   phoneFrom?: string;
-  paymentMethod?: string;
+  paymentMethod?: PaymentMethod;
   screenshotUrl?: string;
   rejectionReason?: string;
   processedAt?: string;
@@ -916,7 +1030,7 @@ export interface TopUpRequestDto {
 }
 
 export type TopUpFilterDto = {
-  status?: PaymentConfirmationStatus | string;
+  status?: PaymentConfirmationStatus;
   from?: string;
   to?: string;
   pageIndex?: number;
@@ -925,7 +1039,7 @@ export type TopUpFilterDto = {
 
 export interface WalletTransactionDto {
   id: string;
-  type?: string; // e.g. "Credit", "Debit", "OrderPayment", "Withdrawal"
+  type?: string;
   amount: number;
   balanceAfter: number;
   description?: string;
@@ -967,20 +1081,100 @@ export interface RequestWithdrawalDto {
 // Notifications
 // ═════════════════════════════════════════════════════════════════════
 
+export type NotificationType =
+  | "OrderPlaced"
+  | "OrderAccepted"
+  | "OrderRejected"
+  | "OrderPreparing"
+  | "OrderReady"
+  | "OrderReadyForPickup"
+  | "DriverAssigned"
+  | "DriverArriving"
+  | "OrderPickedUp"
+  | "OrderInTransit"
+  | "OrderDelivered"
+  | "OrderCancelled"
+  | "OrderRefundInitiated"
+  | "OrderRefundCompleted"
+  | "NewDeliveryRequest"
+  | "DeliveryOfferExpired"
+  | "DeliveryReassigned"
+  | "DeliveryFailed"
+  | "NewMessage"
+  | "ConversationAssigned"
+  | "ConversationClosed"
+  | "PaymentReceived"
+  | "PaymentVerified"
+  | "PaymentRejected"
+  | "PaymentFailed"
+  | "RefundProcessed"
+  | "WalletCredited"
+  | "WalletDebited"
+  | "WithdrawalApproved"
+  | "WithdrawalRejected"
+  | "WithdrawalCompleted"
+  | "LoyaltyEarned"
+  | "LoyaltyRedeemed"
+  | "LoyaltyExpiring"
+  | "ReferralReward"
+  | "CouponAvailable"
+  | "CouponApproved"
+  | "CouponRejected"
+  | "StoreApproved"
+  | "StoreRejected"
+  | "StoreSuspended"
+  | "StoreBoosted"
+  | "StoreTypeApproved"
+  | "StoreTypeRejected"
+  | "DriverApproved"
+  | "DriverRejected"
+  | "DocumentApproved"
+  | "DocumentRejected"
+  | "DocumentExpiring"
+  | "SupervisorAssigned"
+  | "DriverRequestApproved"
+  | "DriverRequestRejected"
+  | "RequestSubmitted"
+  | "RequestApproved"
+  | "RequestRejected"
+  | "ComplaintCreated"
+  | "ComplaintResolved"
+  | "NewStoreRegistration"
+  | "NewDriverRegistration"
+  | "OrderIssueReported"
+  | "PaymentIssueReported"
+  | "System"
+  | "MaintenanceMode"
+  | "Welcome"
+  | "AccountSuspended"
+  | "AccountActivated"
+  | "PasswordChanged"
+  | "Broadcast"
+  | "Promotional";
+
+export interface LocalizedTextDto {
+  ar?: string;
+  en?: string;
+}
+
 export interface NotificationPayloadDto {
   action?: string;
   targetPage?: string;
   targetId?: string;
-  extra?: Record<string, string>;
+  extra?: Record<string, string | LocalizedTextDto>;
 }
 
 export interface NotificationDto {
   id: string;
   recipientId: string;
-  recipientType?: string;
-  type?: string;
-  title?: string;
-  body?: string;
+  recipientType?: UserRole;
+  type?: NotificationType;
+
+  titleAr?: string;
+  titleEn?: string;
+  bodyAr?: string;
+  bodyEn?: string;
+
   payload?: NotificationPayloadDto;
   isRead: boolean;
   readAt?: string;
@@ -993,26 +1187,30 @@ export interface NotificationDto {
 
 export interface NotificationSummaryDto {
   id: string;
-  type?: string;
-  title?: string;
-  body?: string;
+  type?: NotificationType;
+
+  titleAr?: string;
+  titleEn?: string;
+  bodyAr?: string;
+  bodyEn?: string;
+
   payload?: NotificationPayloadDto;
   isRead: boolean;
   createdAt: string;
 }
 
-export interface NotificationFilterDto {
-  type?: string;
+export type NotificationFilterDto = {
+  type?: NotificationType;
   isRead?: boolean;
   from?: string;
   to?: string;
   pageIndex?: number;
   pageSize?: number;
-}
+};
 
 export interface UnreadCountDto {
   total: number;
-  byType?: Record<string, number>;
+  byType?: Partial<Record<NotificationType, number>>;
 }
 
 export interface NotificationPreferencesDto {
@@ -1047,7 +1245,7 @@ export interface MarkAllAsReadResultDto {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Chat (store owner participates like any other role)
+// Chat
 // ═════════════════════════════════════════════════════════════════════
 
 export type SenderType = "Customer" | "Store" | "Fleet" | "Driver" | "Admin";
@@ -1119,36 +1317,31 @@ export interface CreateConversationDto {
   firstMessage?: string;
 }
 
+export interface CloseConversationDto {
+  reason?: string;
+}
+
+export interface AssignConversationDto {
+  adminId: string;
+}
+
+export interface ChatUnreadCountDto {
+  total: number;
+  byConversation?: Record<string, number>;
+}
+
+export interface AttachmentUploadResultDto {
+  url: string;
+  relativePath: string;
+  fileName: string;
+  sizeInBytes: number;
+  contentType: string;
+}
+
 // ═════════════════════════════════════════════════════════════════════
-// PENDING BACKEND
+// Forward-looking
 // ═════════════════════════════════════════════════════════════════════
 
-/** Public "apply as store" flow */
-export interface CreateStoreRequestDto {
-  name: string;
-  phoneNumber: string;
-  types: string;
-  email?: string;
-  address?: string;
-  city?: string;
-  brandName?: string;
-  note?: string;
-  requestType?: string;
-  attachmentUrl?: string;
-}
-
-/** Not shipped: PATCH /api/store/busy */
-export interface SetStoreBusyDto {
-  isBusy: boolean;
-}
-
-/** Not shipped: product stock tracking */
-export interface SetProductStockDto {
-  stockQuantity: number;
-  lowStockThreshold?: number;
-}
-
-/** Not shipped: quantity bundles */
 export interface QuantityBundleDto {
   id: string;
   name: string;
@@ -1160,13 +1353,13 @@ export interface QuantityBundleDto {
   isActive: boolean;
   tiers?: BundleTierDto[];
 }
+
 export interface BundleTierDto {
   id: string;
   minQuantity: number;
   discountPercentage: number;
 }
 
-/** Not shipped: support tickets */
 export interface SupportTicketDto {
   id: string;
   subject: string;
@@ -1176,13 +1369,11 @@ export interface SupportTicketDto {
   updatedAt: string;
 }
 
-/** Not shipped: store-level global discount */
 export interface GlobalDiscountDto {
   percentage: number;
   isActive: boolean;
 }
 
-/** Not shipped: customer wallet top-up */
 export interface WalletTopUpDto {
   amount: number;
   screenshotUrl?: string;

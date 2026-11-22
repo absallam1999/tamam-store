@@ -3,6 +3,7 @@ import { useLanguage } from "@/shared/hooks/useLanguage";
 import { useToast } from "@shared/components/Toaster";
 import { cn } from "@shared/utils/cn";
 import { formatTime, formatDate } from "@shared/utils/formatters";
+import { resolveMediaUrl } from "@/shared/utils/Parser";
 import {
   useSupportTickets,
   useSendMessage,
@@ -80,13 +81,46 @@ const t = {
   },
   ticketClosed: { ar: "تم إغلاق التذكرة", en: "Ticket closed" },
   closeError: { ar: "فشل إغلاق التذكرة", en: "Failed to close ticket" },
+  attachment: { ar: "ملف مرفق", en: "Attachment" },
+  tapToDownload: { ar: "انقر للتحميل", en: "Tap to download" },
+  tapToView: { ar: "انقر للعرض", en: "Tap to view" },
 } as const;
 
 const lang = (key: keyof typeof t, isAr: boolean) =>
   isAr ? t[key].ar : t[key].en;
 
 // ============================================================
-// Skeleton Loader (unchanged)
+// Helper
+// ============================================================
+
+const formatTicketPreview = (
+  preview: string | null | undefined,
+  isAr: boolean,
+): string => {
+  if (!preview) return "";
+  const trimmed = preview.trim();
+  if (!trimmed) return "";
+
+  const lower = trimmed.toLowerCase();
+
+  // Image placeholder
+  if (lower === "image" || lower === "📷" || lower === "📷 image") {
+    return isAr ? "صورة" : "Image";
+  }
+
+  // Attachment / File placeholders
+  if (lower === "attachment" || lower === "📎" || lower === "📎 attachment") {
+    return isAr ? "مرفق" : "Attachment";
+  }
+  if (lower === "file" || lower === "📎 file") {
+    return isAr ? "ملف" : "File";
+  }
+
+  return trimmed;
+};
+
+// ============================================================
+// Skeleton Loader
 // ============================================================
 
 const SkeletonLoader: React.FC<{ isAr: boolean }> = ({ isAr }) => {
@@ -171,7 +205,7 @@ const SkeletonLoader: React.FC<{ isAr: boolean }> = ({ isAr }) => {
 };
 
 // ============================================================
-// Status Badge — only Open / Closed exist on ChatStatus
+// Status Badge
 // ============================================================
 
 const StatusBadge: React.FC<{ status: string; isAr: boolean }> = ({
@@ -207,7 +241,7 @@ const StatusBadge: React.FC<{ status: string; isAr: boolean }> = ({
 };
 
 // ============================================================
-// Message Bubble — senderType + attachment support
+// Message Bubble
 // ============================================================
 
 const MessageBubble: React.FC<{
@@ -215,111 +249,247 @@ const MessageBubble: React.FC<{
   isOwn: boolean;
   isAr: boolean;
 }> = ({ message, isOwn, isAr }) => {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [imageError, setImageError] = useState(false);
+
+  const attachmentUrl = resolveMediaUrl(message.attachmentUrl);
+  const avatarUrl = resolveMediaUrl(message.senderProfilePictureUrl);
+
+  const isImage =
+    message.messageType === "Image" && !!attachmentUrl && !imageError;
+  const isFile = !!attachmentUrl && !isImage;
+  const attachmentName = message.content?.trim();
+
+  // Close lightbox on Escape
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightboxOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxOpen]);
+
   return (
-    <div
-      className={cn(
-        "flex items-end gap-3 animate-fade-in max-w-full w-fit",
-        isOwn ? "me-auto flex-row" : "ms-auto flex-row-reverse",
-      )}
-    >
-      {/* Avatar */}
+    <>
       <div
         className={cn(
-          "w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold overflow-hidden",
-          isOwn
-            ? "bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/20"
-            : "bg-gradient-to-br from-surface-200 to-surface-300 dark:from-surface-700 dark:to-surface-600 text-surface-700 dark:text-surface-300",
+          "flex items-end gap-3 animate-fade-in max-w-full w-fit",
+          isOwn ? "me-auto flex-row" : "ms-auto flex-row-reverse",
         )}
       >
-        {message.senderProfilePictureUrl ? (
-          <img
-            src={message.senderProfilePictureUrl}
-            alt={message.senderName ?? ""}
-            className="w-full h-full object-cover"
-          />
-        ) : isOwn ? (
-          isAr ? "أ" : "Y"
-        ) : isAr ? (
-          "د"
-        ) : (
-          "S"
-        )}
+        {/* Avatar */}
+        <div
+          className={cn(
+            "w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold overflow-hidden",
+            isOwn
+              ? "bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-lg shadow-primary-500/20"
+              : "bg-gradient-to-br from-surface-200 to-surface-300 dark:from-surface-700 dark:to-surface-600 text-surface-700 dark:text-surface-300",
+          )}
+        >
+          {avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt={message.senderName ?? ""}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
+            />
+          ) : isOwn ? (
+            isAr ? (
+              "أ"
+            ) : (
+              "Y"
+            )
+          ) : isAr ? (
+            "د"
+          ) : (
+            "S"
+          )}
+        </div>
+
+        {/* Bubble */}
+        <div
+          className={cn(
+            "text-sm leading-relaxed shadow-sm rounded-2xl overflow-hidden",
+            isImage ? "w-56 max-w-[70vw] p-2" : "max-w-[70%] px-4 py-2.5",
+            isOwn
+              ? "bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-primary-500/20 rounded-ss-none"
+              : "bg-white dark:bg-surface-800 text-surface-900 dark:text-white border border-surface-200 dark:border-surface-700 rounded-se-none",
+          )}
+        >
+          {/* Inline image */}
+          {isImage && attachmentUrl && (
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(true)}
+              className={cn(
+                "relative block w-full aspect-square rounded-lg overflow-hidden cursor-zoom-in group",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+                isOwn
+                  ? "focus-visible:ring-white/70 focus-visible:ring-offset-primary-600"
+                  : "focus-visible:ring-primary-500/70 focus-visible:ring-offset-white dark:focus-visible:ring-offset-surface-800",
+                "border",
+                isOwn
+                  ? "border-white/15"
+                  : "border-surface-200/60 dark:border-surface-700/60",
+              )}
+              aria-label={lang("tapToView", isAr)}
+            >
+              <img
+                src={attachmentUrl}
+                alt={attachmentName ?? ""}
+                loading="lazy"
+                draggable={false}
+                className="w-full h-full object-cover block select-none pointer-events-none transition-transform duration-300 group-hover:scale-[1.03]"
+                onError={() => setImageError(true)}
+              />
+              {/* Subtle inner ring for depth */}
+              <div className="absolute inset-0 ring-1 ring-inset ring-black/5 dark:ring-white/5 rounded-lg pointer-events-none" />
+              {/* Hover gradient */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-black/0 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none" />
+              {/* Zoom hint icon */}
+              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+                <div className="p-2 rounded-full bg-black/50 backdrop-blur-sm shadow-lg">
+                  <svg
+                    className="w-4 h-4 text-white"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={2.5}
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </button>
+          )}
+
+          {/* File card */}
+          {isFile && attachmentUrl && (
+            <a
+              href={attachmentUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              download
+              className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
+            >
+              <div
+                className={cn(
+                  "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0",
+                  isOwn
+                    ? "bg-white/20 text-white"
+                    : "bg-primary-50 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400",
+                )}
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
+                  />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium truncate max-w-[180px]">
+                  {attachmentName || lang("attachment", isAr)}
+                </p>
+                <p
+                  className={cn(
+                    "text-[10px]",
+                    isOwn
+                      ? "text-white/70"
+                      : "text-surface-500 dark:text-surface-400",
+                  )}
+                >
+                  {lang("tapToDownload", isAr)}
+                </p>
+              </div>
+            </a>
+          )}
+
+          {/* Text content */}
+          {message.content && !attachmentUrl && (
+            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+          )}
+
+          {/* Timestamp + sent check */}
+          <div className={cn("flex items-center gap-1.5 mt-1.5 justify-end")}>
+            <span
+              className={cn(
+                "text-[10px]",
+                isOwn
+                  ? "text-white/70"
+                  : "text-surface-400 dark:text-surface-500",
+              )}
+            >
+              {formatTime(message.createdAt)}
+            </span>
+            {isOwn && (
+              <svg
+                className="w-3 h-3 text-white/50"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Bubble */}
-      <div
-        className={cn(
-          "max-w-[70%] px-4 py-2.5 text-sm leading-relaxed shadow-sm rounded-2xl",
-          isOwn
-            ? "bg-gradient-to-br from-primary-500 to-primary-600 text-white shadow-primary-500/20 rounded-ss-none"
-            : "bg-white dark:bg-surface-800 text-surface-900 dark:text-white border border-surface-200 dark:border-surface-700 rounded-se-none",
-        )}
-      >
-        {message.attachmentUrl && (
-          <a
-            href={message.attachmentUrl}
-            target="_blank"
-            rel="noreferrer noopener"
-            className={cn(
-              "inline-flex items-center gap-1.5 text-xs font-medium underline mb-1",
-              isOwn ? "text-white/90" : "text-primary-600 dark:text-primary-400",
-            )}
+      {/* Lightbox */}
+      {lightboxOpen && attachmentUrl && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-fade-in"
+          onClick={() => setLightboxOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(false)}
+            className="absolute top-4 end-4 p-2.5 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors z-10"
+            aria-label={isAr ? "إغلاق" : "Close"}
           >
             <svg
-              className="w-3.5 h-3.5"
+              className="w-5 h-5"
               fill="none"
               viewBox="0 0 24 24"
-              strokeWidth={2}
+              strokeWidth={2.5}
               stroke="currentColor"
             >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 0 1-6.364-6.364l10.94-10.94A3 3 0 1 1 19.5 7.372L8.552 18.32m.009-.01-.01.01m5.699-9.941-7.81 7.81a1.5 1.5 0 0 0 2.112 2.13"
+                d="M6 18 18 6M6 6l12 12"
               />
             </svg>
-            {message.messageType === "Image"
-              ? isAr
-                ? "صورة"
-                : "Image"
-              : isAr
-                ? "ملف مرفق"
-                : "Attachment"}
-          </a>
-        )}
-
-        {message.content && (
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
-        )}
-
-        {/* Timestamp + check — justify-end is already RTL-aware */}
-        <div className="flex items-center gap-1.5 mt-1.5 justify-end">
-          <span
-            className={cn(
-              "text-[10px]",
-              isOwn
-                ? "text-white/70"
-                : "text-surface-400 dark:text-surface-500",
-            )}
-          >
-            {formatTime(message.createdAt)}
-          </span>
-          {isOwn && (
-            <svg
-              className="w-3 h-3 text-white/50"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                clipRule="evenodd"
-              />
-            </svg>
-          )}
+          </button>
+          <img
+            src={attachmentUrl}
+            alt=""
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
-      </div>
-    </div>
+      )}
+    </>
   );
 };
 
@@ -356,7 +526,6 @@ export const SupportPage: React.FC = () => {
 
   const selectedTicket = tickets.find((t) => t.id === selectedTicketId);
 
-  // Auto-scroll on new messages
   useEffect(() => {
     if (messagesEndRef.current) {
       setTimeout(
@@ -366,7 +535,6 @@ export const SupportPage: React.FC = () => {
     }
   }, [messages]);
 
-  // Mark read whenever a ticket is opened
   useEffect(() => {
     if (selectedTicketId) {
       markRead.mutate(selectedTicketId);
@@ -375,7 +543,8 @@ export const SupportPage: React.FC = () => {
   }, [selectedTicketId]);
 
   const handleSendMessage = useCallback(async () => {
-    if (!newMessage.trim() || !selectedTicketId || sendMessage.isPending) return;
+    if (!newMessage.trim() || !selectedTicketId || sendMessage.isPending)
+      return;
     try {
       await sendMessage.mutateAsync({
         ticketId: selectedTicketId,
@@ -470,7 +639,6 @@ export const SupportPage: React.FC = () => {
     [handleSendMessage],
   );
 
-  // Auto-size textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -558,6 +726,11 @@ export const SupportPage: React.FC = () => {
               <div className="space-y-2">
                 {tickets.map((ticket) => {
                   const isActive = ticket.id === selectedTicketId;
+                  const previewText = formatTicketPreview(
+                    ticket.lastMessagePreview,
+                    isAr,
+                  );
+
                   return (
                     <button
                       key={ticket.id}
@@ -574,7 +747,8 @@ export const SupportPage: React.FC = () => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
                             <p className="text-sm font-medium truncate">
-                              {ticket.subject ?? (isAr ? "تذكرة دعم" : "Support Ticket")}
+                              {ticket.subject ??
+                                (isAr ? "تذكرة دعم" : "Support Ticket")}
                             </p>
                             {ticket.unreadCount > 0 && (
                               <span className="flex-shrink-0 bg-primary-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
@@ -582,21 +756,25 @@ export const SupportPage: React.FC = () => {
                               </span>
                             )}
                           </div>
-                          {ticket.lastMessagePreview && (
+                          {previewText ? (
                             <p className="text-xs text-surface-500 dark:text-surface-400 truncate mt-1">
-                              {ticket.lastMessagePreview}
+                              {previewText}
                             </p>
-                          )}
-                          {!ticket.lastMessagePreview && (
+                          ) : (
                             <p className="text-xs text-surface-400 dark:text-surface-500 mt-1 italic">
                               {lang("noMessages", isAr)}
                             </p>
                           )}
                         </div>
                         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                          <StatusBadge status={ticket.status ?? "Open"} isAr={isAr} />
+                          <StatusBadge
+                            status={ticket.status ?? "Open"}
+                            isAr={isAr}
+                          />
                           <span className="text-[10px] text-surface-400">
-                            {formatTime(ticket.lastMessageAt ?? ticket.createdAt)}
+                            {formatTime(
+                              ticket.lastMessageAt ?? ticket.createdAt,
+                            )}
                           </span>
                         </div>
                       </div>
@@ -759,7 +937,9 @@ export const SupportPage: React.FC = () => {
                           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                         />
                       </svg>
-                      <span className="text-sm">{lang("loadMessages", isAr)}</span>
+                      <span className="text-sm">
+                        {lang("loadMessages", isAr)}
+                      </span>
                     </div>
                   </div>
                 ) : messages.length > 0 ? (
@@ -805,7 +985,8 @@ export const SupportPage: React.FC = () => {
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     disabled={
-                      selectedTicket.status === "Closed" || sendMessage.isPending
+                      selectedTicket.status === "Closed" ||
+                      sendMessage.isPending
                     }
                     className="p-2.5 rounded-xl text-surface-400 hover:text-surface-600 dark:text-surface-500 dark:hover:text-surface-300 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors flex-shrink-0 disabled:opacity-50"
                     title={lang("attachFile", isAr)}
@@ -881,8 +1062,11 @@ export const SupportPage: React.FC = () => {
                       </>
                     ) : (
                       <>
+                        <span className="hidden sm:inline">
+                          {lang("send", isAr)}
+                        </span>
                         <svg
-                          className="w-4 h-4"
+                          className={`w-4 h-4 ${isAr ? "-scale-x-100" : ""}`}
                           fill="none"
                           viewBox="0 0 24 24"
                           strokeWidth={2.5}
@@ -894,9 +1078,6 @@ export const SupportPage: React.FC = () => {
                             d="M6 12L3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12Zm0 0h7.5"
                           />
                         </svg>
-                        <span className="hidden sm:inline">
-                          {lang("send", isAr)}
-                        </span>
                       </>
                     )}
                   </button>
@@ -940,7 +1121,7 @@ export const SupportPage: React.FC = () => {
         </div>
       </div>
 
-      {/* New Ticket Modal — priority removed, order/subject/message kept */}
+      {/* New Ticket Modal */}
       {showNewTicket && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in"
@@ -983,7 +1164,6 @@ export const SupportPage: React.FC = () => {
               </button>
             </div>
             <div className="p-4 sm:p-6 space-y-4">
-              {/* Subject */}
               <div className={cn("space-y-1.5", isRTL && "text-right")}>
                 <label className="block text-xs font-medium text-surface-700 dark:text-surface-300">
                   {lang("subject", isAr)}
@@ -997,7 +1177,6 @@ export const SupportPage: React.FC = () => {
                 />
               </div>
 
-              {/* Order Selection */}
               <div className={cn("space-y-1.5", isRTL && "text-right")}>
                 <label className="block text-xs font-medium text-surface-700 dark:text-surface-300">
                   {lang("optionalOrder", isAr)}
@@ -1016,7 +1195,6 @@ export const SupportPage: React.FC = () => {
                 </select>
               </div>
 
-              {/* Message */}
               <div className={cn("space-y-1.5", isRTL && "text-right")}>
                 <label className="block text-xs font-medium text-surface-700 dark:text-surface-300">
                   {lang("message", isAr)}
@@ -1030,7 +1208,6 @@ export const SupportPage: React.FC = () => {
                 />
               </div>
 
-              {/* Buttons */}
               <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => setShowNewTicket(false)}

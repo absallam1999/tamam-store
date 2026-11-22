@@ -1,8 +1,7 @@
 import { getApiUrl, ENDPOINTS } from "@/config/api";
 
 // ═════════════════════════════════════════════════════════════════════
-// Server envelope — matches ApiResponse<T> on the server
-// (returned by ApiResponseWrapperFilter for every controller response)
+// Server envelope
 // ═════════════════════════════════════════════════════════════════════
 interface ServerEnvelope<T> {
   success: boolean;
@@ -12,7 +11,7 @@ interface ServerEnvelope<T> {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// What this client returns — .data is the unwrapped payload
+// What this client returns
 // ═════════════════════════════════════════════════════════════════════
 export interface ApiResponse<T> {
   data: T;
@@ -21,7 +20,7 @@ export interface ApiResponse<T> {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Typed error — carries status + field-level errors for UI display
+// Typed error
 // ═════════════════════════════════════════════════════════════════════
 export class ApiError extends Error {
   readonly status: number;
@@ -36,7 +35,7 @@ export class ApiError extends Error {
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Query params — scalars only; null/undefined are dropped
+// Query params
 // ═════════════════════════════════════════════════════════════════════
 export type QueryParams = Record<
   string,

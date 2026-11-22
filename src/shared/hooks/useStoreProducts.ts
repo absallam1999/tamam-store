@@ -29,8 +29,7 @@ export const productKeys = {
     pageIndex?: number;
     pageSize?: number;
   }) => [PRODUCTS_KEY, "list", filter ?? null] as const,
-  detail: (productId: string) =>
-    [PRODUCTS_KEY, "detail", productId] as const,
+  detail: (productId: string) => [PRODUCTS_KEY, "detail", productId] as const,
   options: (productId: string) =>
     [PRODUCTS_KEY, "detail", productId, "options"] as const,
 };
@@ -346,8 +345,10 @@ export function useDeleteProductOptionValue() {
 export function useSetProductOptionValueDefault() {
   const queryClient = useQueryClient();
 
-  return useMutation<ProductOptionValueDto, Error, string>({
-    mutationFn: (valueId) => storeApi.productOptions.setValueDefault(valueId),
+  return useMutation<void, Error, string>({
+    mutationFn: async (valueId) => {
+      await storeApi.productOptions.setValueDefault(valueId);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [PRODUCTS_KEY] });
     },
@@ -361,13 +362,29 @@ export function useSetProductOptionValueDefault() {
 export function useUploadProductImage() {
   const queryClient = useQueryClient();
 
+  return useMutation<ProductDto, Error, { productId: string; file: File }>({
+    mutationFn: ({ productId, file }) =>
+      storeApi.products.uploadImage(productId, file),
+    onSuccess: (updated, variables) => {
+      queryClient.setQueryData(
+        productKeys.detail(variables.productId),
+        updated,
+      );
+      queryClient.invalidateQueries({ queryKey: [PRODUCTS_KEY] });
+    },
+  });
+}
+
+export function useSetProductImage() {
+  const queryClient = useQueryClient();
+
   return useMutation<
     ProductDto,
     Error,
-    { productId: string; file: File }
+    { productId: string; imageUrl: string }
   >({
-    mutationFn: ({ productId, file }) =>
-      storeApi.products.uploadImage(productId, file),
+    mutationFn: ({ productId, imageUrl }) =>
+      storeApi.products.setImage(productId, imageUrl),
     onSuccess: (updated, variables) => {
       queryClient.setQueryData(
         productKeys.detail(variables.productId),

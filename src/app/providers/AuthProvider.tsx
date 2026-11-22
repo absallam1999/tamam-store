@@ -9,7 +9,13 @@ import {
 } from "react";
 import { ENDPOINTS } from "@/config/api";
 import { apiClient, ApiError } from "@/lib/api-client";
-import type { AuthResponseDto, UserRole } from "@shared/types";
+import type {
+  AuthResponseDto,
+  UserRole,
+  SubmitStoreOnboardingDto,
+  OnboardingSubmissionResultDto,
+  OtpSentResponseDto,
+} from "@shared/types";
 
 // ═════════════════════════════════════════════════════════════════════
 // Types
@@ -44,25 +50,18 @@ export interface VerifyOtpCredentials {
   code: string;
 }
 
-export interface StoreRequestCredentials {
-  name: string;
-  phoneNumber: string;
-  email?: string;
-  address?: string;
-  city?: string;
-  brandName?: string;
-  note?: string;
-  types: string[];
-}
+export type StoreRequestCredentials = SubmitStoreOnboardingDto;
 
 interface AuthContextValue {
   user: StoreOwner | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
-  submitStoreRequest: (credentials: StoreRequestCredentials) => Promise<void>;
+  submitStoreRequest: (
+    credentials: StoreRequestCredentials,
+  ) => Promise<OnboardingSubmissionResultDto>;
   logout: () => void;
-  sendOtp: (credentials: SendOtpCredentials) => Promise<void>;
+  sendOtp: (credentials: SendOtpCredentials) => Promise<OtpSentResponseDto>;
   verifyOtp: (credentials: VerifyOtpCredentials) => Promise<boolean>;
   getAccessToken: () => string | null;
   refreshToken: () => Promise<string | null>;
@@ -73,16 +72,12 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 // ═════════════════════════════════════════════════════════════════════
-// Storage keys
+// Storage keys + helpers
 // ═════════════════════════════════════════════════════════════════════
 
 const ACCESS_TOKEN_KEY = "store-access-token";
 const REFRESH_TOKEN_KEY = "store-refresh-token";
 const USER_DATA_KEY = "store-user-data";
-
-// ═════════════════════════════════════════════════════════════════════
-// Token storage helpers
-// ═════════════════════════════════════════════════════════════════════
 
 function getStoredTokens(): AuthTokens | null {
   try {
@@ -144,10 +139,17 @@ function mapAuthResponseToUser(
     id: dto.userId,
     fullName: dto.fullName ?? "",
     phoneNumber: dto.phoneNumber ?? phoneFallback ?? "",
-    email: undefined, // not in AuthResponseDto — filled in by StoreProvider profile fetch
+    email: undefined,
     role: dto.role ?? "StoreOwner",
     isActive: dto.isActive,
   };
+}
+
+function rejectIfWrongRole(dto: AuthResponseDto): string | null {
+  if (dto.role && dto.role !== "StoreOwner") {
+    return "هذا الحساب غير مصرح له بالدخول إلى بوابة المتجر";
+  }
+  return null;
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -165,39 +167,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const clearError = useCallback(() => setError(null), []);
 
-  // ══════════════════════════════════════════════════════════════════
-  // Read the current access token from storage.
-  // api-client refreshes transparently on 401 — this is just a read.
-  // ══════════════════════════════════════════════════════════════════
-  const getAccessToken = useCallback((): string | null => {
-    return getStoredTokens()?.accessToken ?? null;
-  }, []);
+  const getAccessToken = useCallback(
+    (): string | null => getStoredTokens()?.accessToken ?? null,
+    [],
+  );
 
-  // ══════════════════════════════════════════════════════════════════
-  // Force a session check. If the token is expired, api-client's 401
-  // interceptor refreshes it and retries. If refresh fails, api-client
-  // clears tokens and redirects to /auth/login.
-  //
-  // Returns the (possibly refreshed) access token, or null when the
-  // session is truly dead.
-  // ══════════════════════════════════════════════════════════════════
   const refreshToken = useCallback(async (): Promise<string | null> => {
     try {
-      // Any authenticated call exercises the auto-refresh path.
       await apiClient.get(ENDPOINTS.STORE.PROFILE);
       return getStoredTokens()?.accessToken ?? null;
     } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        return null; // Session is dead — api-client already cleaned up
+      if (
+        err instanceof ApiError &&
+        (err.status === 401 || err.status === 403)
+      ) {
+        return null;
       }
-      // Transient error (network / 5xx) — token may still be valid
       return getStoredTokens()?.accessToken ?? null;
     }
   }, []);
 
-  // ══════════════════════════════════════════════════════════════════
-  // Session initialization on mount
-  // ══════════════════════════════════════════════════════════════════
+  // ── Session init ─────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
@@ -205,7 +195,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const tokens = getStoredTokens();
       const storedUser = getStoredUser();
 
-      // No tokens → no session, done.
       if (!tokens) {
         if (!cancelled) {
           setUser(null);
@@ -215,24 +204,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         return;
       }
 
-      // Tokens exist — verify them by hitting the profile endpoint.
-      // Triggers auto-refresh if expired; throws only when refresh fails.
       try {
         await apiClient.get(ENDPOINTS.STORE.PROFILE);
-
-        if (!cancelled) {
-          // Token is good. Keep stored user (identity doesn't change on refresh).
-          setUser(storedUser);
-        }
+        if (!cancelled) setUser(storedUser);
       } catch (err) {
         if (cancelled) return;
-
-        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-          // Refresh chain exhausted — session is dead
+        if (
+          err instanceof ApiError &&
+          (err.status === 401 || err.status === 403)
+        ) {
           clearTokens();
           setUser(null);
         } else {
-          // Server / network hiccup — keep the stored user so UI stays alive
           setUser(storedUser);
         }
       } finally {
@@ -247,9 +230,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
   }, []);
 
-  // ══════════════════════════════════════════════════════════════════
-  // LOGIN
-  // ══════════════════════════════════════════════════════════════════
+  // ── LOGIN ────────────────────────────────────────────────────────
   const login = useCallback(
     async (credentials: LoginCredentials): Promise<void> => {
       setError(null);
@@ -260,10 +241,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           {
             phoneNumber: credentials.phoneNumber.trim(),
             password: credentials.password,
-            role: "StoreOwner", // string — matches UserRole union
+            role: "StoreOwner",
           },
-          true, // skipAuth — we're not authenticated yet
+          true,
         );
+
+        const roleError = rejectIfWrongRole(data);
+        if (roleError) throw new Error(roleError);
 
         if (!data.token || !data.refreshToken) {
           throw new Error("لم يتم استلام رمز الوصول من الخادم");
@@ -291,22 +275,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     [],
   );
 
-  // ══════════════════════════════════════════════════════════════════
-  // SEND OTP (login flow — not registration)
-  // ══════════════════════════════════════════════════════════════════
+  // ── SEND OTP (login flow) ────────────────────────────────────────
   const sendOtp = useCallback(
-    async (credentials: SendOtpCredentials): Promise<void> => {
+    async (credentials: SendOtpCredentials): Promise<OtpSentResponseDto> => {
       setError(null);
 
       try {
-        await apiClient.post(
+        const { data } = await apiClient.post<OtpSentResponseDto>(
           ENDPOINTS.AUTH.SEND_OTP,
           {
             phoneNumber: credentials.phoneNumber.trim(),
             role: "StoreOwner",
           },
-          true, // skipAuth
+          true,
         );
+        return data;
       } catch (err) {
         const message =
           err instanceof ApiError ? err.message : "فشل إرسال رمز التحقق";
@@ -317,9 +300,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     [],
   );
 
-  // ══════════════════════════════════════════════════════════════════
-  // VERIFY OTP (login flow — returns AuthResponseDto on success)
-  // ══════════════════════════════════════════════════════════════════
+  // ── VERIFY OTP (login flow) ──────────────────────────────────────
   const verifyOtp = useCallback(
     async (credentials: VerifyOtpCredentials): Promise<boolean> => {
       setError(null);
@@ -332,12 +313,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             code: credentials.code,
             role: "StoreOwner",
           },
-          true, // skipAuth
+          true,
         );
 
-        if (!data.token || !data.refreshToken) {
-          return false; // No session issued
-        }
+        const roleError = rejectIfWrongRole(data);
+        if (roleError) throw new Error(roleError);
+
+        if (!data.token || !data.refreshToken) return false;
 
         storeTokens({
           accessToken: data.token,
@@ -358,35 +340,43 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     [],
   );
 
-  // ══════════════════════════════════════════════════════════════════
-  // SUBMIT STORE REQUEST — endpoint not yet shipped
-  // Kept in the interface so existing callers don't break; fails clearly.
-  // ══════════════════════════════════════════════════════════════════
+  // ── SUBMIT STORE ONBOARDING ──────────────────────────────────────
   const submitStoreRequest = useCallback(
-    async (_credentials: StoreRequestCredentials): Promise<void> => {
-      const message =
-        "خدمة طلب إنشاء المتجر غير متاحة حالياً. يرجى التواصل مع الدعم.";
-      setError(message);
-      throw new Error(message);
+    async (
+      credentials: StoreRequestCredentials,
+    ): Promise<OnboardingSubmissionResultDto> => {
+      setError(null);
+
+      try {
+        const { data } = await apiClient.post<OnboardingSubmissionResultDto>(
+          ENDPOINTS.ONBOARDING.SUBMIT,
+          credentials,
+          true, // public submission
+        );
+        return data;
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.status === 429
+              ? "تم تجاوز الحد المسموح من الطلبات. يرجى المحاولة بعد قليل."
+              : err.message
+            : "فشل إرسال طلب إنشاء المتجر";
+        setError(message);
+        throw err;
+      }
     },
     [],
   );
 
-  // ══════════════════════════════════════════════════════════════════
-  // LOGOUT
-  // ══════════════════════════════════════════════════════════════════
+  // ── LOGOUT ───────────────────────────────────────────────────────
   const logout = useCallback(() => {
-    // Best-effort server-side logout (ignores failures — token will expire anyway)
     apiClient.post(ENDPOINTS.AUTH.LOGOUT).catch(() => undefined);
-
     clearTokens();
     setUser(null);
     setError(null);
   }, []);
 
-  // ══════════════════════════════════════════════════════════════════
-  // Derived state
-  // ══════════════════════════════════════════════════════════════════
+  // ── Derived state ────────────────────────────────────────────────
   const isAuthenticated = user !== null;
 
   const contextValue = useMemo<AuthContextValue>(

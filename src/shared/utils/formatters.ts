@@ -96,29 +96,54 @@ export const formatDateTime = (date: string | Date): string => {
 };
 
 // ============================================================
-// Relative Time (lightweight, used everywhere)
+// Relative Time
 // ============================================================
 
-export const getRelativeTime = (timestamp: string | Date | null | undefined): string => {
-  const d = safeDate(timestamp);
-  if (!d) return "—";
+export type RelativeTimeLocale = "ar" | "en";
 
-  const diff = Date.now() - d.getTime();
+export const getRelativeTime = (
+  timestamp: string | Date,
+  locale: RelativeTimeLocale = "ar",
+): string => {
+  const isAr = locale !== "en";
+
+  const diff = Date.now() - new Date(timestamp).getTime();
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
 
-  if (seconds < 10) return "الآن";
-  if (seconds < 60) return `منذ ${seconds} ث`;
-  if (minutes === 1) return "منذ دقيقة";
-  if (minutes < 60) return `منذ ${minutes} د`;
-  if (hours === 1) return "منذ ساعة";
-  if (hours < 24) return `منذ ${hours} س`;
-  if (days === 1) return "أمس";
-  if (days < 7) return `منذ ${days} يوم`;
-  if (days < 30) return `منذ ${Math.floor(days / 7)} أسبوع`;
-  return formatDate(d);
+  // < 10s — "just now"
+  if (seconds < 10) return isAr ? "الآن" : "Just now";
+
+  // 10–59s
+  if (seconds < 60) return isAr ? `منذ ${seconds} ث` : `${seconds}s ago`;
+
+  // 1 minute
+  if (minutes === 1) return isAr ? "منذ دقيقة" : "1m ago";
+
+  // 2–59 minutes
+  if (minutes < 60) return isAr ? `منذ ${minutes} د` : `${minutes}m ago`;
+
+  // 1 hour
+  if (hours === 1) return isAr ? "منذ ساعة" : "1h ago";
+
+  // 2–23 hours
+  if (hours < 24) return isAr ? `منذ ${hours} س` : `${hours}h ago`;
+
+  // 1 day
+  if (days === 1) return isAr ? "أمس" : "Yesterday";
+
+  // 2–6 days
+  if (days < 7) return isAr ? `منذ ${days} يوم` : `${days}d ago`;
+
+  // 1–4 weeks
+  if (days < 30) {
+    const weeks = Math.floor(days / 7);
+    return isAr ? `منذ ${weeks} أسبوع` : `${weeks}w ago`;
+  }
+
+  return formatDate(timestamp);
 };
 
 // ============================================================

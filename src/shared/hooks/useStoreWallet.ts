@@ -28,7 +28,7 @@ export const WALLET_PAYMENT_NUMBERS_KEY = "wallet-payment-numbers";
 // ============================================
 
 export interface WithdrawalFilters {
-  status?: WithdrawalStatus | string;
+  status?: WithdrawalStatus;
   from?: string;
   to?: string;
   pageIndex?: number;

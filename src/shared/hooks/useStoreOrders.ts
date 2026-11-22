@@ -34,22 +34,44 @@ export type FrontendOrderStatus =
   | "delivered"
   | "cancelled";
 
-export interface NormalizedOrder
-  extends Omit<StoreOrderDto, "status"> {
+export interface NormalizedOrder extends Omit<StoreOrderDto, "status"> {
   status: FrontendOrderStatus;
 }
 
-const frontendToApiStatus = (s: string): OrderStatus => {
-  const map: Record<string, OrderStatus> = {
-    pending: "Pending",
-    accepted: "Accepted",
-    preparing: "Preparing",
-    ready: "ReadyForDriver",
-    picked_up: "PickedUp",
-    delivered: "Delivered",
-    cancelled: "Cancelled",
-  };
-  return (map[s] ?? "Pending") as OrderStatus;
+// ── Status translation ──────────────────
+
+const API_ORDER_STATUSES: readonly OrderStatus[] = [
+  "Pending",
+  "Accepted",
+  "Preparing",
+  "ReadyForDriver",
+  "DriverAssigned",
+  "PickedUp",
+  "InTransit",
+  "Delivered",
+  "Cancelled",
+  "Rejected",
+  "Failed",
+];
+
+const FRONTEND_TO_API: Record<FrontendOrderStatus, OrderStatus> = {
+  pending: "Pending",
+  accepted: "Accepted",
+  preparing: "Preparing",
+  ready: "ReadyForDriver",
+  picked_up: "PickedUp",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
+
+const toApiStatus = (s: string): OrderStatus => {
+  if ((API_ORDER_STATUSES as readonly string[]).includes(s)) {
+    return s as OrderStatus;
+  }
+  if (s in FRONTEND_TO_API) {
+    return FRONTEND_TO_API[s as FrontendOrderStatus];
+  }
+  return "Pending";
 };
 
 const apiToFrontendStatus = (apiStatus: string): FrontendOrderStatus => {
@@ -76,7 +98,6 @@ const apiToFrontendStatus = (apiStatus: string): FrontendOrderStatus => {
   return map[apiStatus] ?? "pending";
 };
 
-// Normalize a raw API order → frontend view model
 function normalizeOrder(raw: StoreOrderDto): NormalizedOrder {
   return {
     ...raw,
@@ -89,14 +110,18 @@ function normalizeOrder(raw: StoreOrderDto): NormalizedOrder {
 // ═════════════════════════════════════════════════════════════════════
 
 export function useStoreOrders(filters?: {
-  status?: string;
+  status?: FrontendOrderStatus | OrderStatus;
   page?: number;
   pageSize?: number;
 }) {
   return useQuery<NormalizedOrder[]>({
     queryKey: orderKeys.list(filters),
     queryFn: async () => {
-      const orders = await storeApi.orders.list(filters?.status);
+      const apiStatus = filters?.status
+        ? toApiStatus(filters.status)
+        : undefined;
+
+      const orders = await storeApi.orders.list(apiStatus);
       return orders.map(normalizeOrder);
     },
     staleTime: 30_000,
@@ -177,11 +202,11 @@ export function useUpdateOrderStatus() {
       rejectionReason,
     }: {
       orderId: string;
-      status: string;
+      status: FrontendOrderStatus | OrderStatus;
       rejectionReason?: string;
     }) => {
       const dto: UpdateOrderStatusDto = {
-        status: frontendToApiStatus(status),
+        status: toApiStatus(status),
         rejectionReason,
       };
       return storeApi.orders.setStatus(orderId, dto);

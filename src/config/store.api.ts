@@ -6,6 +6,7 @@ import type {
   UpdateStoreProfileDto,
   StoreDashboardDto,
   ToggleStoreOpenDto,
+  ToggleStoreBusyDto,
   UpdateStoreImageDto,
 
   // Store Types
@@ -47,6 +48,7 @@ import type {
   // Orders
   StoreOrderDto,
   StoreOrderStatsDto,
+  OrderStatus,
   UpdateOrderStatusDto,
   RejectOrderRequest,
   CancelOrderRequest,
@@ -56,7 +58,8 @@ import type {
   CreateStoreOpeningHourDto,
   UpdateStoreOpeningHourDto,
 
-  // City Delivery Fees
+  // City Delivery Fees + Cities
+  CityListDto,
   StoreCityDeliveryFeeDto,
   CreateStoreCityDeliveryFeeDto,
   UpdateStoreCityDeliveryFeeDto,
@@ -65,7 +68,8 @@ import type {
   ReviewDto,
   ReplyToReviewRequest,
 
-  // Wallet (shared)
+  // Wallet
+  WithdrawalStatus,
   WalletSummaryDto,
   WalletTransactionDto,
   WithdrawalDto,
@@ -75,8 +79,29 @@ import type {
   TopUpRequestDto,
   TopUpFilterDto,
 
+  // Notifications
+  NotificationDto,
+  NotificationFilterDto,
+  UnreadCountDto,
+  NotificationPreferencesDto,
+  UpdateNotificationPreferencesDto,
+  MarkAllAsReadResultDto,
+
+  // Chat
+  ConversationDto,
+  ConversationListItemDto,
+  MessageDto,
+  SendMessageDto,
+  CreateConversationDto,
+  CloseConversationDto,
+  AttachmentUploadResultDto,
+  ChatUnreadCountDto,
+  MessageType,
+
   // Files
   FileUploadResultDto,
+  MultipleFileUploadResultDto,
+  FileInfoDto,
   FileCategory,
 
   // Pagination
@@ -125,7 +150,7 @@ export const storeApi = {
         .put<StoreProfileDto>(ENDPOINTS.STORE.PROFILE, dto)
         .then((r) => r.data),
 
-    /** PATCH /api/store/profile/open — body { isOpen: boolean } */
+    /** PATCH /api/store/profile/open */
     toggleOpen: (isOpen: boolean) =>
       apiClient
         .patch<StoreProfileDto>(ENDPOINTS.STORE.TOGGLE_OPEN, {
@@ -133,11 +158,14 @@ export const storeApi = {
         } satisfies ToggleStoreOpenDto)
         .then((r) => r.data),
 
-    /**
-     * Store logo — TWO-STEP:
-     *   1. POST /api/files/upload?category=store-logos → { url }
-     *   2. PUT  /api/store/profile/logo { imageUrl }
-     */
+    /** PATCH /api/store/profile/busy */
+    toggleBusy: (isBusy: boolean) =>
+      apiClient
+        .patch<StoreProfileDto>(ENDPOINTS.STORE.TOGGLE_BUSY, {
+          isBusy,
+        } satisfies ToggleStoreBusyDto)
+        .then((r) => r.data),
+
     uploadLogo: async (file: File) => {
       const uploaded = await uploadFile(file, "store-logos");
       return apiClient
@@ -147,7 +175,6 @@ export const storeApi = {
         .then((r) => r.data);
     },
 
-    /** Same two-step flow, category = store-covers. */
     uploadCover: async (file: File) => {
       const uploaded = await uploadFile(file, "store-covers");
       return apiClient
@@ -159,16 +186,14 @@ export const storeApi = {
   },
 
   // ═══════════════════════════════════════════════════════════════════
-  // STORE TYPES (applications — onboarding)
+  // STORE TYPES
   // ═══════════════════════════════════════════════════════════════════
   storeTypes: {
-    /** My submitted applications: /api/store/type-applications */
     getMyApplications: () =>
       apiClient
         .get<StoreTypeProfileDto[]>(ENDPOINTS.STORE.TYPE_APPLICATIONS)
         .then((r) => r.data),
 
-    /** Submit an application — POST { storeTypeId }. */
     requestType: (storeTypeId: string) =>
       apiClient
         .post<StoreTypeProfileDto>(ENDPOINTS.STORE.REQUEST_TYPE, {
@@ -176,13 +201,11 @@ export const storeApi = {
         })
         .then((r) => r.data),
 
-    /** Withdraw a pending application. */
     cancelApplication: (mappingId: string) =>
       apiClient.delete<void>(
         ENDPOINTS.STORE.CANCEL_TYPE_APPLICATION(mappingId),
       ),
 
-    /** Browse active types (from the public store-types endpoint). */
     getAvailable: () =>
       apiClient
         .get<StoreTypeListDto[]>(ENDPOINTS.BROWSE.STORE_TYPES_ACTIVE)
@@ -195,13 +218,11 @@ export const storeApi = {
         })
         .then((r) => r.data),
 
-    /** Grouped view — categories with their types nested. */
     getGrouped: () =>
       apiClient
         .get<CategoryWithTypesDto[]>(ENDPOINTS.BROWSE.STORE_TYPES_GROUPED)
         .then((r) => r.data),
 
-    /** Public store categories (category icon/text). */
     getCategories: () =>
       apiClient
         .get<StoreCategoryDto[]>(ENDPOINTS.BROWSE.STORE_CATEGORIES)
@@ -281,7 +302,7 @@ export const storeApi = {
     remove: (productId: string) =>
       apiClient.delete<void>(ENDPOINTS.STORE.PRODUCT_BY_ID(productId)),
 
-    /** PATCH { isAvailable } — separate from create/update. */
+    /** PATCH { isAvailable } */
     setAvailability: (productId: string, isAvailable: boolean) =>
       apiClient
         .patch<ProductDto>(ENDPOINTS.STORE.PRODUCT_AVAILABILITY(productId), {
@@ -297,7 +318,7 @@ export const storeApi = {
         } satisfies SetProductFeaturedDto)
         .then((r) => r.data),
 
-    /** PATCH { discountedPrice } — null clears the discount. */
+    /** PATCH { discountedPrice } */
     setDiscount: (productId: string, discountedPrice: number | null) =>
       apiClient
         .patch<ProductDto>(ENDPOINTS.STORE.PRODUCT_DISCOUNT(productId), {
@@ -305,7 +326,7 @@ export const storeApi = {
         } satisfies SetProductDiscountDto)
         .then((r) => r.data),
 
-    /** Convenience — same endpoint, discount = null. */
+    /** Convenience */
     clearDiscount: (productId: string) =>
       apiClient
         .patch<ProductDto>(ENDPOINTS.STORE.PRODUCT_DISCOUNT(productId), {
@@ -313,7 +334,7 @@ export const storeApi = {
         } satisfies SetProductDiscountDto)
         .then((r) => r.data),
 
-    /** Two-step product image — upload first, then PUT the URL. */
+    /** Two-step product image */
     uploadImage: async (productId: string, file: File) => {
       const uploaded = await uploadFile(file, "product-images");
       return apiClient
@@ -322,16 +343,20 @@ export const storeApi = {
         } satisfies UpdateStoreImageDto)
         .then((r) => r.data);
     },
+
+    /** Sets the image URL directly */
+    setImage: (productId: string, imageUrl: string) =>
+      apiClient
+        .put<ProductDto>(ENDPOINTS.STORE.PRODUCT_IMAGE(productId), {
+          imageUrl,
+        } satisfies UpdateStoreImageDto)
+        .then((r) => r.data),
   },
 
   // ═══════════════════════════════════════════════════════════════════
   // PRODUCT OPTIONS
   // ═══════════════════════════════════════════════════════════════════
   productOptions: {
-    /**
-     * Options are returned inside `ProductDto.options`. There is no
-     * dedicated GET — this helper exists so callers don't need to know.
-     */
     listForProduct: (productId: string) =>
       apiClient
         .get<ProductDto>(ENDPOINTS.STORE.PRODUCT_BY_ID(productId))
@@ -377,17 +402,14 @@ export const storeApi = {
         ENDPOINTS.STORE.PRODUCT_OPTION_VALUE_BY_ID(valueId),
       ),
 
-    /** Marks this value as the default within its option group. */
     setValueDefault: (valueId: string) =>
-      apiClient
-        .post<ProductOptionValueDto>(
-          ENDPOINTS.STORE.PRODUCT_OPTION_VALUE_SET_DEFAULT(valueId),
-        )
-        .then((r) => r.data),
+      apiClient.post<void>(
+        ENDPOINTS.STORE.PRODUCT_OPTION_VALUE_SET_DEFAULT(valueId),
+      ),
   },
 
   // ═══════════════════════════════════════════════════════════════════
-  // OFFERS  (Standard + GroupDeal — same endpoints, different `type`)
+  // OFFERS
   // ═══════════════════════════════════════════════════════════════════
   offers: {
     list: () =>
@@ -409,13 +431,13 @@ export const storeApi = {
     remove: (offerId: string) =>
       apiClient.delete<void>(ENDPOINTS.STORE.OFFER_BY_ID(offerId)),
 
-    /** PATCH /toggle — endpoint takes no body. */
+    /** PATCH /toggle */
     toggle: (offerId: string) =>
       apiClient
         .patch<OfferDto>(ENDPOINTS.STORE.OFFER_TOGGLE(offerId))
         .then((r) => r.data),
 
-    /** POST /products with { productId, quantity } — body, not path. */
+    /** POST /products with { productId, quantity } */
     addProduct: (offerId: string, body: AddOfferProductRequest) =>
       apiClient
         .post<OfferDto>(ENDPOINTS.STORE.OFFER_ADD_PRODUCT(offerId), body)
@@ -456,7 +478,7 @@ export const storeApi = {
     remove: (couponId: string) =>
       apiClient.delete<void>(ENDPOINTS.STORE.COUPON_BY_ID(couponId)),
 
-    /** PATCH /toggle — endpoint takes no body. */
+    /** PATCH /toggle */
     toggle: (couponId: string) =>
       apiClient
         .patch<StoreCouponDto>(ENDPOINTS.STORE.COUPON_TOGGLE(couponId))
@@ -467,7 +489,7 @@ export const storeApi = {
   // ORDERS
   // ═══════════════════════════════════════════════════════════════════
   orders: {
-    list: (status?: string) =>
+    list: (status?: OrderStatus) =>
       apiClient
         .get<
           StoreOrderDto[]
@@ -489,7 +511,7 @@ export const storeApi = {
         .get<StoreOrderDto[]>(ENDPOINTS.STORE_ORDERS.SCHEDULED)
         .then((r) => r.data),
 
-    // ── State transitions ──────────────────────────────────────────
+    // ── State transitions ────────────────────
     accept: (orderId: string) =>
       apiClient.post<void>(ENDPOINTS.STORE_ORDERS.ACCEPT(orderId)),
 
@@ -515,7 +537,9 @@ export const storeApi = {
     outForDelivery: (orderId: string) =>
       apiClient.post<void>(ENDPOINTS.STORE_ORDERS.OUT_FOR_DELIVERY(orderId)),
 
-    /** PATCH /status — not PUT. */
+    /**
+     * PATCH /status
+     */
     setStatus: (orderId: string, dto: UpdateOrderStatusDto) =>
       apiClient.patch<void>(ENDPOINTS.STORE_ORDERS.SET_STATUS(orderId), dto),
 
@@ -528,7 +552,7 @@ export const storeApi = {
         reason,
       } satisfies CancelOrderRequest),
 
-    // ── Customer-initiated cancellation ────────────────────────────
+    // ── Customer-initiated cancellation (no body) ──────────────────
     acceptCancellation: (orderId: string) =>
       apiClient.post<void>(ENDPOINTS.STORE_ORDERS.ACCEPT_CANCELLATION(orderId)),
 
@@ -563,7 +587,7 @@ export const storeApi = {
   },
 
   // ═══════════════════════════════════════════════════════════════════
-  // CITY DELIVERY FEES (per-store overrides)
+  // CITY DELIVERY FEES
   // ═══════════════════════════════════════════════════════════════════
   cityDeliveryFees: {
     list: () =>
@@ -586,6 +610,11 @@ export const storeApi = {
 
     remove: (id: string) =>
       apiClient.delete<void>(ENDPOINTS.STORE.CITY_DELIVERY_FEE_BY_ID(id)),
+
+    getCities: () =>
+      apiClient
+        .get<CityListDto[]>(ENDPOINTS.BROWSE.CITIES_LOOKUP)
+        .then((r) => r.data),
   },
 
   // ═══════════════════════════════════════════════════════════════════
@@ -610,7 +639,149 @@ export const storeApi = {
   },
 
   // ═══════════════════════════════════════════════════════════════════
-  // WALLET (shared — endpoint is /api/wallet, not /api/store/wallet)
+  // NOTIFICATIONS
+  // ═══════════════════════════════════════════════════════════════════
+  notifications: {
+    list: (params?: NotificationFilterDto) =>
+      apiClient
+        .get<PagedResult<NotificationDto>>(ENDPOINTS.NOTIFICATIONS.LIST, params)
+        .then((r) => r.data),
+
+    unreadCount: () =>
+      apiClient
+        .get<UnreadCountDto>(ENDPOINTS.NOTIFICATIONS.UNREAD_COUNT)
+        .then((r) => r.data),
+
+    get: (id: string) =>
+      apiClient
+        .get<NotificationDto>(ENDPOINTS.NOTIFICATIONS.BY_ID(id))
+        .then((r) => r.data),
+
+    markRead: (id: string) =>
+      apiClient.post<void>(ENDPOINTS.NOTIFICATIONS.MARK_READ(id)),
+
+    markAllRead: () =>
+      apiClient
+        .post<MarkAllAsReadResultDto>(ENDPOINTS.NOTIFICATIONS.MARK_ALL_READ)
+        .then((r) => r.data),
+
+    remove: (id: string) =>
+      apiClient.delete<void>(ENDPOINTS.NOTIFICATIONS.DELETE(id)),
+
+    getPreferences: () =>
+      apiClient
+        .get<NotificationPreferencesDto>(ENDPOINTS.NOTIFICATIONS.PREFERENCES)
+        .then((r) => r.data),
+
+    updatePreferences: (dto: UpdateNotificationPreferencesDto) =>
+      apiClient
+        .put<NotificationPreferencesDto>(
+          ENDPOINTS.NOTIFICATIONS.PREFERENCES,
+          dto,
+        )
+        .then((r) => r.data),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CHAT
+  // ═══════════════════════════════════════════════════════════════════
+  chat: {
+    listConversations: (params?: {
+      status?: string;
+      search?: string;
+      sortBy?: string;
+      pageIndex?: number;
+      pageSize?: number;
+    }) =>
+      apiClient
+        .get<
+          PagedResult<ConversationListItemDto>
+        >(ENDPOINTS.CHAT.CONVERSATIONS, params)
+        .then((r) => r.data),
+
+    getConversation: (id: string) =>
+      apiClient
+        .get<ConversationDto>(ENDPOINTS.CHAT.CONVERSATION_BY_ID(id))
+        .then((r) => r.data),
+
+    createConversation: (dto: CreateConversationDto) =>
+      apiClient
+        .post<ConversationDto>(ENDPOINTS.CHAT.CONVERSATIONS, dto)
+        .then((r) => r.data),
+
+    listMessages: (
+      id: string,
+      params?: {
+        since?: string;
+        before?: string;
+        messageType?: MessageType;
+        order?: string;
+        pageIndex?: number;
+        pageSize?: number;
+      },
+    ) =>
+      apiClient
+        .get<PagedResult<MessageDto>>(ENDPOINTS.CHAT.MESSAGES(id), params)
+        .then((r) => r.data),
+
+    sendMessage: (id: string, dto: SendMessageDto) =>
+      apiClient
+        .post<MessageDto>(ENDPOINTS.CHAT.MESSAGES(id), dto)
+        .then((r) => r.data),
+
+    /** Sends an attachment as a chat message */
+    sendAttachment: async (
+      id: string,
+      file: File,
+      messageType: MessageType = "Image",
+    ) => {
+      const formData = new FormData();
+      formData.append("File", file);
+      formData.append("MessageType", messageType);
+
+      return apiClient
+        .post<MessageDto>(ENDPOINTS.CHAT.SEND_ATTACHMENT(id), formData)
+        .then((r) => r.data);
+    },
+
+    /** Upload-only */
+    uploadOnly: async (
+      id: string,
+      file: File,
+      messageType: MessageType = "Image",
+    ) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("messageType", messageType);
+
+      return apiClient
+        .post<AttachmentUploadResultDto>(
+          ENDPOINTS.CHAT.UPLOAD_ONLY(id),
+          formData,
+        )
+        .then((r) => r.data);
+    },
+
+    /** POST /{id}/read — 204 no content. */
+    markRead: (id: string) =>
+      apiClient.post<void>(ENDPOINTS.CHAT.MARK_READ(id)),
+
+    /** POST /{id}/close — returns the updated ConversationDto. */
+    close: (id: string, reason?: string) =>
+      apiClient
+        .post<ConversationDto>(ENDPOINTS.CHAT.CLOSE(id), {
+          reason,
+        } satisfies CloseConversationDto)
+        .then((r) => r.data),
+
+    unreadCount: () =>
+      apiClient
+        .get<ChatUnreadCountDto>(ENDPOINTS.CHAT.UNREAD_COUNT)
+        .then((r) => r.data),
+  },
+
+  // ═══════════════════════════════════════════════════════════════════
+  // WALLET
   // ═══════════════════════════════════════════════════════════════════
   wallet: {
     // ── Summary ────────────────────────────────────────────────────
@@ -641,7 +812,7 @@ export const storeApi = {
 
     // ── Withdrawals ────────────────────────────────────────────────
     withdrawals: (params?: {
-      status?: string;
+      status?: WithdrawalStatus;
       from?: string;
       to?: string;
       pageIndex?: number;
@@ -651,7 +822,7 @@ export const storeApi = {
         .get<PagedResult<WithdrawalDto>>(ENDPOINTS.WALLET.WITHDRAWALS, params)
         .then((r) => r.data),
 
-    /** POST /api/wallet/withdrawals { amount } — returns the new withdrawal. */
+    /** POST /api/wallet/withdrawals */
     requestWithdrawal: (dto: RequestWithdrawalDto) =>
       apiClient
         .post<WithdrawalDto>(ENDPOINTS.WALLET.WITHDRAWALS, dto)
@@ -666,8 +837,6 @@ export const storeApi = {
     // ── Top-up / Deposit ───────────────────────────────────────────
     /**
      * GET /api/wallet/payment-numbers
-     * Active admin-owned payment numbers the caller can send money to.
-     * Backs the "where do I transfer?" step of the deposit flow.
      */
     getPaymentNumbers: () =>
       apiClient
@@ -676,28 +845,19 @@ export const storeApi = {
 
     /**
      * POST /api/wallet/topup
-     * Submits proof of payment. Creates a `Pending` PaymentConfirmation
-     * that enters the admin verification queue.
      */
     submitTopUp: (dto: SubmitTopUpRequestDto) =>
       apiClient
         .post<TopUpRequestDto>(ENDPOINTS.WALLET.TOPUP, dto)
         .then((r) => r.data),
 
-    /**
-     * GET /api/wallet/topup
-     * Paginated list of the caller's own top-up requests, newest first.
-     */
+    /** GET /api/wallet/topup */
     getTopUps: (params?: TopUpFilterDto) =>
       apiClient
         .get<PagedResult<TopUpRequestDto>>(ENDPOINTS.WALLET.TOPUP, params)
         .then((r) => r.data),
 
-    /**
-     * GET /api/wallet/topup/{id}
-     * Single top-up request — used by the client to poll status while
-     * the admin reviews the proof.
-     */
+    /** GET /api/wallet/topup/{id} */
     getTopUpById: (id: string) =>
       apiClient
         .get<TopUpRequestDto>(ENDPOINTS.WALLET.TOPUP_BY_ID(id))
@@ -705,13 +865,16 @@ export const storeApi = {
   },
 
   // ═══════════════════════════════════════════════════════════════════
-  // FILES (generic helpers for anything that uploads then references)
+  // FILES
   // ═══════════════════════════════════════════════════════════════════
   files: {
     upload: (file: File, category: FileCategory = "general") =>
       uploadFile(file, category),
 
-    uploadMany: async (files: File[], category: FileCategory = "general") => {
+    uploadMany: async (
+      files: File[],
+      category: FileCategory = "general",
+    ): Promise<MultipleFileUploadResultDto> => {
       const formData = new FormData();
       // Server parameter is `List<IFormFile> files` → field name = "files"
       files.forEach((f) => formData.append("files", f));
@@ -721,16 +884,16 @@ export const storeApi = {
         `?category=${encodeURIComponent(category)}`;
 
       return apiClient
-        .post<{
-          files: FileUploadResultDto[];
-          successCount: number;
-          failureCount: number;
-          errors: string[];
-        }>(url, formData)
+        .post<MultipleFileUploadResultDto>(url, formData)
         .then((r) => r.data);
     },
 
     remove: (relativePath: string) =>
       apiClient.delete<void>(ENDPOINTS.FILES.DELETE(relativePath)),
+
+    info: (relativePath: string) =>
+      apiClient
+        .get<FileInfoDto>(ENDPOINTS.FILES.INFO(relativePath))
+        .then((r) => r.data),
   },
 };

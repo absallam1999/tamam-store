@@ -140,7 +140,7 @@ export const AppRouter: React.FC = () => {
           }
         />
         <Route
-          path="/auth/signup"
+          path="/auth/register"
           element={
             <Suspense fallback={<PageLoader />}>
               <RegisterPage />

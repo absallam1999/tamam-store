@@ -10,39 +10,51 @@ import {
   useMarkAsRead,
   useMarkAllAsRead,
   useDeleteNotification,
-  useDeleteAllNotifications,
 } from "@shared/hooks/useStoreNotifications";
-import type { NotificationSummaryDto } from "@shared/types";
+import type {
+  NotificationSummaryDto,
+  NotificationFilterDto,
+} from "@shared/types";
 
-// ============================================================
-// Route resolver
-// ============================================================
-
-function getNotificationRoute(
-  n: NotificationSummaryDto,
-): string | undefined {
+function getNotificationRoute(n: NotificationSummaryDto): string | undefined {
   const { targetPage, targetId } = n.payload ?? {};
-  if (!targetPage) return undefined;
 
-  switch (targetPage) {
-    case "Order":
-    case "OrderDetail":
-      return targetId
-        ? `/dashboard/orders/${targetId}`
-        : "/dashboard/orders";
-    case "Chat":
-    case "ChatDetail":
-      return "/dashboard/support";
-    case "Wallet":
-      return "/dashboard/wallet";
-    case "Settings":
-    case "StoreProfile":
-      return "/dashboard/settings";
-    case "Notifications":
-      return "/dashboard/notifications";
-    default:
-      return "/dashboard/notifications";
+  if (targetPage) {
+    switch (targetPage) {
+      case "Order":
+      case "OrderDetail":
+        return targetId ? `/dashboard/orders/${targetId}` : "/dashboard/orders";
+      case "Chat":
+      case "ChatDetail":
+        return "/dashboard/support";
+      case "Wallet":
+      case "WalletTransactions":
+        return "/dashboard/wallet";
+      case "Settings":
+      case "StoreProfile":
+        return "/dashboard/settings";
+      case "Reviews":
+        return "/dashboard/reviews";
+      case "Notifications":
+        return "/dashboard/notifications";
+      default:
+        return "/dashboard/notifications";
+    }
   }
+
+  const type = n.type ?? "";
+  if (type.startsWith("Order")) return "/dashboard/orders";
+  if (
+    type.startsWith("Payment") ||
+    type.startsWith("Wallet") ||
+    type.startsWith("Withdrawal")
+  )
+    return "/dashboard/wallet";
+  if (type.startsWith("Chat")) return "/dashboard/support";
+  if (type.startsWith("Review")) return "/dashboard/reviews";
+  if (type.startsWith("Store")) return "/dashboard/settings";
+
+  return undefined;
 }
 
 // ============================================================
@@ -62,6 +74,10 @@ const t = {
   filterUnread: { ar: "غير مقروء", en: "Unread" },
   markAllRead: { ar: "تحديد الكل كمقروء", en: "Mark All Read" },
   deleteAll: { ar: "حذف الكل", en: "Delete All" },
+  deleteAllUnavailable: {
+    ar: "الحذف الجماعي غير متاح حالياً — احذف الإشعارات فردياً.",
+    en: "Bulk delete isn't available yet — delete notifications individually.",
+  },
   delete: { ar: "حذف", en: "Delete" },
   noNotifications: { ar: "لا توجد إشعارات", en: "No Notifications" },
   noNotificationsYet: {
@@ -75,24 +91,57 @@ const t = {
     en: "Failed to update notifications",
   },
   deleteSuccess: { ar: "تم حذف الإشعار", en: "Notification deleted" },
-  deleteAllSuccess: {
-    ar: "تم حذف جميع الإشعارات",
-    en: "All notifications deleted",
-  },
-  deleteAllConfirm: {
-    ar: "هل أنت متأكد من حذف جميع الإشعارات؟",
-    en: "Delete all notifications?",
-  },
   error: { ar: "حدث خطأ", en: "An error occurred" },
   previous: { ar: "السابق", en: "Previous" },
   next: { ar: "التالي", en: "Next" },
 };
 
 // ============================================================
-// Notification type icons
+// Type → category mapping
 // ============================================================
 
-const typeIcons: Record<string, { bg: string; icon: React.ReactNode }> = {
+type TypeCategory =
+  | "order"
+  | "payment"
+  | "system"
+  | "message"
+  | "review"
+  | "default";
+
+function getTypeCategory(type: string | undefined): TypeCategory {
+  if (!type) return "default";
+  const lower = type.toLowerCase();
+
+  if (lower.includes("order")) return "order";
+  if (
+    lower.includes("payment") ||
+    lower.includes("wallet") ||
+    lower.includes("withdrawal") ||
+    lower.includes("topup")
+  )
+    return "payment";
+  if (lower.includes("chat") || lower.includes("message")) return "message";
+  if (lower.includes("review")) return "review";
+  if (
+    lower.includes("system") ||
+    lower.includes("store") ||
+    lower.includes("alert")
+  )
+    return "system";
+
+  return "default";
+}
+
+const categoryLabels: Record<TypeCategory, { ar: string; en: string }> = {
+  order: { ar: "طلب", en: "Order" },
+  payment: { ar: "دفع", en: "Payment" },
+  system: { ar: "نظام", en: "System" },
+  message: { ar: "رسالة", en: "Message" },
+  review: { ar: "تقييم", en: "Review" },
+  default: { ar: "عام", en: "General" },
+};
+
+const typeIcons: Record<TypeCategory, { bg: string; icon: React.ReactNode }> = {
   order: {
     bg: "bg-success-100 dark:bg-success-500/10 text-success-600 dark:text-success-400",
     icon: (
@@ -170,47 +219,43 @@ const typeIcons: Record<string, { bg: string; icon: React.ReactNode }> = {
       </svg>
     ),
   },
+  review: {
+    bg: "bg-warning-100 dark:bg-warning-500/10 text-warning-600 dark:text-warning-400",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602c-.38-.325-.178-.948.32-.988l5.519-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"
+        />
+      </svg>
+    ),
+  },
+  default: {
+    bg: "bg-surface-100 dark:bg-surface-800 text-surface-500 dark:text-surface-400",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"
+        />
+      </svg>
+    ),
+  },
 };
-
-const defaultTypeIcon = {
-  bg: "bg-surface-100 dark:bg-surface-800 text-surface-500 dark:text-surface-400",
-  icon: (
-    <svg
-      className="w-5 h-5"
-      fill="none"
-      viewBox="0 0 24 24"
-      strokeWidth={1.5}
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"
-      />
-    </svg>
-  ),
-};
-
-/**
- * Resolves the icon config for a notification type.
- * Wire values are PascalCase ("OrderPlaced"); the icon map is lowercase —
- * normalize and prefix-match so both exact keys and variants work.
- */
-function getTypeConfig(type: string | undefined) {
-  if (!type) return defaultTypeIcon;
-
-  const lower = type.toLowerCase();
-
-  // Exact match first
-  if (typeIcons[lower]) return typeIcons[lower];
-
-  // Prefix match: "OrderPlaced" → "order", "PaymentReceived" → "payment"
-  for (const key of Object.keys(typeIcons)) {
-    if (lower.startsWith(key)) return typeIcons[key];
-  }
-
-  return defaultTypeIcon;
-}
 
 // ============================================================
 // Main Component
@@ -223,13 +268,23 @@ export const NotificationsPage: React.FC = () => {
   const isAr = currentLanguage === "ar";
   const lang = (obj: { ar: string; en: string }) => (isAr ? obj.ar : obj.en);
 
+  // Dual-language helper — prefers the current language, falls back to the other.
+  const loc = (ar: string | undefined, en: string | undefined): string =>
+    isAr ? (ar ?? en ?? "") : (en ?? ar ?? "");
+
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // ── Data ───────────────────────────────────────────────────────
-  // useNotifications returns PagedResult<NotificationSummaryDto>
-  const { data: notificationsPage, isLoading } = useNotifications(page, 20);
+  const hookFilter: NotificationFilterDto | undefined =
+    filter === "unread" ? { isRead: false } : undefined;
+
+  const { data: notificationsPage, isLoading } = useNotifications(
+    page,
+    20,
+    hookFilter,
+  );
   const notifications: NotificationSummaryDto[] =
     notificationsPage?.items ?? [];
   const totalCount = notificationsPage?.totalCount ?? 0;
@@ -237,7 +292,6 @@ export const NotificationsPage: React.FC = () => {
   const hasNext = notificationsPage?.hasNext ?? false;
   const hasPrevious = notificationsPage?.hasPrevious ?? false;
 
-  // useUnreadCount returns UnreadCountDto { total, byType }
   const { data: unreadData } = useUnreadCount();
   const unreadCount = unreadData?.total ?? 0;
 
@@ -245,15 +299,13 @@ export const NotificationsPage: React.FC = () => {
   const markAsRead = useMarkAsRead();
   const markAllAsRead = useMarkAllAsRead();
   const deleteNotification = useDeleteNotification();
-  const deleteAllNotifications = useDeleteAllNotifications();
-
-  // ── Derived ────────────────────────────────────────────────────
-  const filteredNotifications =
-    filter === "unread"
-      ? notifications.filter((n) => !n.isRead)
-      : notifications;
 
   // ── Handlers ───────────────────────────────────────────────────
+  const handleFilterChange = (newFilter: "all" | "unread") => {
+    setFilter(newFilter);
+    setPage(1);
+  };
+
   const handleMarkAllRead = async () => {
     try {
       await markAllAsRead.mutateAsync();
@@ -267,7 +319,7 @@ export const NotificationsPage: React.FC = () => {
     try {
       await markAsRead.mutateAsync(id);
     } catch {
-      // Silently ignore — visual feedback is enough
+      // Silent — visual feedback is enough
     }
   };
 
@@ -281,19 +333,6 @@ export const NotificationsPage: React.FC = () => {
       toast.error(lang(t.error));
     } finally {
       setDeletingId(null);
-    }
-  };
-
-  const handleDeleteAll = async () => {
-    if (!window.confirm(lang(t.deleteAllConfirm))) return;
-    try {
-      await deleteAllNotifications.mutateAsync();
-      toast.success(lang(t.deleteAllSuccess));
-    } catch (err) {
-      // Backend bulk-delete endpoint doesn't exist yet — the hook throws
-      // with a descriptive message; surface it directly.
-      const message = err instanceof Error ? err.message : lang(t.error);
-      toast.error(message);
     }
   };
 
@@ -368,9 +407,10 @@ export const NotificationsPage: React.FC = () => {
           )}
           {totalCount > 0 && (
             <button
-              onClick={handleDeleteAll}
-              disabled={deleteAllNotifications.isPending}
-              className="btn btn-ghost btn-sm text-error-600 hover:text-error-700 dark:text-error-400"
+              type="button"
+              disabled
+              title={lang(t.deleteAllUnavailable)}
+              className="btn btn-ghost btn-sm text-error-600 dark:text-error-400 opacity-50 cursor-not-allowed"
             >
               <svg
                 className="w-4 h-4"
@@ -392,40 +432,42 @@ export const NotificationsPage: React.FC = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          {
-            value: totalCount,
-            label: lang(t.total),
-            color:
-              "bg-primary-100 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400",
-          },
-          {
-            value: unreadCount,
-            label: lang(t.unread),
-            color:
-              "bg-warning-100 dark:bg-warning-500/10 text-warning-600 dark:text-warning-400",
-          },
-          {
-            value: Math.max(totalCount - unreadCount, 0),
-            label: lang(t.read),
-            color:
-              "bg-success-100 dark:bg-success-500/10 text-success-600 dark:text-success-400",
-          },
-        ].map((stat, idx) => (
-          <div
-            key={idx}
-            className="bg-white dark:bg-surface-900 rounded-2xl border border-surface-200 dark:border-surface-800 p-4 shadow-sm text-center"
-          >
-            <p className="text-2xl font-bold text-surface-900 dark:text-white">
-              {stat.value}
-            </p>
-            <p className="text-xs text-surface-500 dark:text-surface-400 mt-1 font-medium">
-              {stat.label}
-            </p>
-          </div>
-        ))}
-      </div>
+      {filter === "all" && (
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            {
+              value: totalCount,
+              label: lang(t.total),
+              color:
+                "bg-primary-100 dark:bg-primary-500/10 text-primary-600 dark:text-primary-400",
+            },
+            {
+              value: unreadCount,
+              label: lang(t.unread),
+              color:
+                "bg-warning-100 dark:bg-warning-500/10 text-warning-600 dark:text-warning-400",
+            },
+            {
+              value: Math.max(totalCount - unreadCount, 0),
+              label: lang(t.read),
+              color:
+                "bg-success-100 dark:bg-success-500/10 text-success-600 dark:text-success-400",
+            },
+          ].map((stat, idx) => (
+            <div
+              key={idx}
+              className="bg-white dark:bg-surface-900 rounded-2xl border border-surface-200 dark:border-surface-800 p-4 shadow-sm text-center"
+            >
+              <p className="text-2xl font-bold text-surface-900 dark:text-white">
+                {stat.value}
+              </p>
+              <p className="text-xs text-surface-500 dark:text-surface-400 mt-1 font-medium">
+                {stat.label}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-2">
@@ -435,7 +477,7 @@ export const NotificationsPage: React.FC = () => {
         ].map((f) => (
           <button
             key={f.key}
-            onClick={() => setFilter(f.key as "all" | "unread")}
+            onClick={() => handleFilterChange(f.key as "all" | "unread")}
             className={cn(
               "px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200",
               filter === f.key
@@ -465,7 +507,7 @@ export const NotificationsPage: React.FC = () => {
             </div>
           ))}
         </div>
-      ) : filteredNotifications.length === 0 ? (
+      ) : notifications.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center bg-white dark:bg-surface-900 rounded-3xl border border-surface-200 dark:border-surface-800">
           <div className="w-20 h-20 rounded-2xl bg-surface-100 dark:bg-surface-800 flex items-center justify-center mb-5">
             <svg
@@ -493,8 +535,9 @@ export const NotificationsPage: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-2">
-          {filteredNotifications.map((n) => {
-            const typeCfg = getTypeConfig(n.type);
+          {notifications.map((n) => {
+            const category = getTypeCategory(n.type);
+            const typeCfg = typeIcons[category];
             return (
               <div
                 key={n.id}
@@ -518,20 +561,20 @@ export const NotificationsPage: React.FC = () => {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-[10px] font-medium text-surface-400 dark:text-surface-500 uppercase tracking-wider">
-                        {n.type ?? "General"}
+                        {lang(categoryLabels[category])}
                       </span>
                       {!n.isRead && (
                         <span className="w-2 h-2 rounded-full bg-primary-500 flex-shrink-0" />
                       )}
                     </div>
                     <h4 className="text-sm font-semibold text-surface-900 dark:text-white mb-1">
-                      {n.title ?? "—"}
+                      {loc(n.titleAr, n.titleEn) || "—"}
                     </h4>
                     <p className="text-xs text-surface-500 dark:text-surface-400 line-clamp-2 leading-relaxed">
-                      {n.body ?? ""}
+                      {loc(n.bodyAr, n.bodyEn)}
                     </p>
                     <p className="text-[11px] text-surface-400 dark:text-surface-500 mt-2">
-                      {getRelativeTime(n.createdAt)}
+                      {getRelativeTime(n.createdAt, isAr ? "ar" : "en")}
                     </p>
                   </div>
                   <button
@@ -583,7 +626,7 @@ export const NotificationsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Pagination — uses server-provided hasNext / hasPrevious / totalPages */}
+      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 pt-2">
           <button

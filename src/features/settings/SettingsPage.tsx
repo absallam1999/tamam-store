@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLanguage } from "@/shared/hooks/useLanguage";
 import { useToast } from "@shared/components/Toaster";
 import {
@@ -21,7 +22,10 @@ import {
   useRemoveStoreType,
 } from "@shared/hooks/useStoreTypes";
 import { cn } from "@shared/utils/cn";
-import type { UpdateStoreProfileDto } from "@shared/types";
+import { resolveMediaUrl } from "@/shared/utils/Parser";
+import { apiClient } from "@/lib/api-client";
+import { ENDPOINTS } from "@/config/api";
+import type { UpdateStoreProfileDto, CityListDto } from "@shared/types";
 import { useStore } from "@/app/providers/StoreProvider";
 
 // ============================================
@@ -97,6 +101,9 @@ const t = {
   streetAr: { ar: "الشارع (عربي)", en: "Street (Arabic)" },
   streetEn: { ar: "الشارع (إنجليزي)", en: "Street (English)" },
   city: { ar: "المدينة", en: "City" },
+  currentCity: { ar: "الحالية", en: "Current" },
+  changeCity: { ar: "— تغيير المدينة —", en: "— Change city —" },
+  loadingCities: { ar: "جاري تحميل المدن...", en: "Loading cities..." },
   latitude: { ar: "خط العرض", en: "Latitude" },
   longitude: { ar: "خط الطول", en: "Longitude" },
   minimumOrderAmount: { ar: "الحد الأدنى للطلب", en: "Minimum Order Amount" },
@@ -237,8 +244,10 @@ const StoreTypesSection: React.FC<{
 }> = ({ store, isAr, lang, onTypesChanged }) => {
   const toast = useToast();
 
+  const storeCategoryId = store?.storeCategoryId as string | undefined;
+
   const { data: availableTypes = [], isLoading: typesLoading } =
-    useAvailableStoreTypes();
+    useAvailableStoreTypes(storeCategoryId);
 
   const addStoreType = useAddStoreType();
   const removeStoreType = useRemoveStoreType();
@@ -314,6 +323,13 @@ const StoreTypesSection: React.FC<{
             <p className="text-sm text-surface-500 dark:text-surface-400">
               {lang(t.noApprovedTypes)}
             </p>
+            {(store?.storeCategoryNameAr || store?.storeCategoryNameEn) && (
+              <p className="text-xs text-surface-400 dark:text-surface-500 mt-2">
+                {isAr
+                  ? `تصنيف المتجر: ${store.storeCategoryNameAr ?? store.storeCategoryNameEn}`
+                  : `Store category: ${store.storeCategoryNameEn ?? store.storeCategoryNameAr}`}
+              </p>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -425,6 +441,14 @@ const StoreTypesSection: React.FC<{
         </div>
       )}
 
+      {!storeCategoryId && (
+        <div className="rounded-xl bg-warning-50 dark:bg-warning-500/5 border border-warning-200 dark:border-warning-500/20 p-3 text-xs text-warning-700 dark:text-warning-400">
+          {isAr
+            ? "لم يتم تعيين تصنيف لمتجرك بعد — تواصل مع الدعم لتعيينه قبل إضافة أنواع."
+            : "Your store has no category assigned yet — contact support before adding types."}
+        </div>
+      )}
+
       {/* Add New Type */}
       <div className="pt-4 border-t border-surface-200 dark:border-surface-700">
         <h4 className="text-sm font-semibold text-surface-700 dark:text-surface-300 mb-3">
@@ -515,31 +539,6 @@ const StoreTypesSection: React.FC<{
   );
 };
 
-const getFixedImageUrl = (
-  url: string | undefined,
-  storeId: string | undefined,
-  type: "logo" | "cover",
-): string => {
-  if (!url || !storeId) return "";
-
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-  let cleanUrl = url;
-
-  cleanUrl = cleanUrl.replace(/\/uploads\//g, "/");
-  cleanUrl = cleanUrl.replace(/\/Store\//g, "/stores/");
-
-  if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) {
-    return cleanUrl;
-  }
-
-  if (cleanUrl.startsWith("/")) {
-    return `${baseUrl}${cleanUrl}`;
-  }
-
-  const fileName = cleanUrl.split("/").pop() || cleanUrl;
-  return `${baseUrl}/stores/${storeId}/${type}/${fileName}`;
-};
-
 // ============================================
 // SettingsPage — Main Component
 // ============================================
@@ -565,6 +564,20 @@ export const SettingsPage: React.FC = () => {
   const { data: serverHours = [], isLoading: hoursLoading } =
     useStoreOpeningHours();
   const saveHour = useSaveStoreOpeningHour();
+
+  // Cities lookup — source for the `cityId` dropdown in the profile tab.
+  const { data: cities = [], isLoading: citiesLoading } = useQuery<
+    CityListDto[]
+  >({
+    queryKey: ["cities", "lookup"],
+    queryFn: async () => {
+      const { data } = await apiClient.get<CityListDto[]>(
+        ENDPOINTS.BROWSE.CITIES_LOOKUP,
+      );
+      return data ?? [];
+    },
+    staleTime: 5 * 60_000,
+  });
 
   const isAr = currentLanguage === "ar";
   const lang = (obj: { ar: string; en: string }) => (isAr ? obj.ar : obj.en);
@@ -601,9 +614,6 @@ export const SettingsPage: React.FC = () => {
   // ═══════════════════════════════════════════════════════════════════
   // Opening hours — optimistic overlay
   // ═══════════════════════════════════════════════════════════════════
-  // The server is the source of truth; this map only holds in-flight
-  // edits so the UI reflects changes instantly. Entries are cleared on
-  // mutation success/failure — cache updates from the hook take over.
   const [pendingHourEdits, setPendingHourEdits] = useState<
     Record<string, Partial<WorkingHourForm>>
   >({});
@@ -611,14 +621,11 @@ export const SettingsPage: React.FC = () => {
   const workingHours: WorkingHourForm[] = useMemo(() => {
     return DAY_KEYS.map((day) => {
       const defaults = defaultWorkingHours.find((h) => h.dayOfWeek === day)!;
-      const server = serverHours.find(
-        (h) => h.dayOfWeek.toLowerCase() === day,
-      );
+      const server = serverHours.find((h) => h.dayOfWeek.toLowerCase() === day);
       const base: WorkingHourForm = server
         ? {
             ...defaults,
             id: server.id,
-            // "HH:mm:ss" → "HH:mm" (input[type=time] wants the short form)
             openingTime: server.openingTime.slice(0, 5),
             closingTime: server.closingTime.slice(0, 5),
             isActive: server.isActive,
@@ -655,7 +662,6 @@ export const SettingsPage: React.FC = () => {
           });
         },
         onError: () => {
-          // Drop the optimistic patch — derived values revert to server state.
           setPendingHourEdits((prev) => {
             const next = { ...prev };
             delete next[day];
@@ -674,7 +680,6 @@ export const SettingsPage: React.FC = () => {
   const handleSaveProfile = useCallback(async () => {
     setIsSaving(true);
     try {
-      // `UpdateStoreProfileDto` matches the current API schema exactly.
       const dto: UpdateStoreProfileDto = {
         nameAr: profile.nameAr,
         nameEn: profile.nameEn,
@@ -686,7 +691,6 @@ export const SettingsPage: React.FC = () => {
         streetAr: profile.streetAr || undefined,
         streetEn: profile.streetEn || undefined,
         cityId: profile.cityId || undefined,
-        city: profile.city || undefined,
         minimumOrderAmount: profile.minimumOrderAmount,
         deliveryFee: profile.deliveryFee,
         estimatedPreparationMinutes: profile.estimatedPreparationMinutes,
@@ -719,7 +723,6 @@ export const SettingsPage: React.FC = () => {
     else setIsUploadingCover(true);
 
     try {
-      // Hooks return StoreProfileDto — `logoUrl` / `coverImageUrl` are set.
       if (type === "logo") {
         const updated = await uploadLogo.mutateAsync(file);
         if (!updated?.logoUrl) throw new Error("No logo URL returned");
@@ -744,26 +747,41 @@ export const SettingsPage: React.FC = () => {
   // ═══════════════════════════════════════════════════════════════════
 
   useEffect(() => {
-    if (store) {
-      setProfile({
-        nameAr: store.nameAr || "",
-        nameEn: store.nameEn || "",
-        descriptionAr: store.descriptionAr || "",
-        descriptionEn: store.descriptionEn || "",
-        email: store.email || "",
-        streetAr: store.streetAr || "",
-        streetEn: store.streetEn || "",
-        // `StoreProfileDto` doesn't expose `cityId` on read — start blank.
-        cityId: "",
-        city: store.city || "",
-        latitude: store.latitude || 0,
-        longitude: store.longitude || 0,
-        minimumOrderAmount: store.minimumOrderAmount || 0,
-        deliveryFee: store.deliveryFee || 0,
-        estimatedPreparationMinutes: store.estimatedPreparationMinutes || 15,
-      });
-    }
-  }, [store]);
+    if (!store) return;
+
+    const s = store as any;
+
+    const directCityId: string | undefined = s.cityId;
+
+    const storeCityName: string = s.cityAr || s.cityEn || s.city || "";
+
+    const matchedCityId =
+      directCityId ||
+      (storeCityName && cities.length > 0
+        ? (cities.find(
+            (c) =>
+              c.nameEn?.toLowerCase() === storeCityName.toLowerCase() ||
+              c.nameAr === storeCityName,
+          )?.id ?? "")
+        : "");
+
+    setProfile({
+      nameAr: store.nameAr || "",
+      nameEn: store.nameEn || "",
+      descriptionAr: store.descriptionAr || "",
+      descriptionEn: store.descriptionEn || "",
+      email: store.email || "",
+      streetAr: store.streetAr || "",
+      streetEn: store.streetEn || "",
+      cityId: matchedCityId,
+      city: storeCityName,
+      latitude: store.latitude || 0,
+      longitude: store.longitude || 0,
+      minimumOrderAmount: store.minimumOrderAmount || 0,
+      deliveryFee: store.deliveryFee || 0,
+      estimatedPreparationMinutes: store.estimatedPreparationMinutes || 15,
+    });
+  }, [store, cities]);
 
   const inputClasses = cn(
     "w-full px-4 py-3 rounded-xl text-sm transition-all duration-200",
@@ -1184,20 +1202,36 @@ export const SettingsPage: React.FC = () => {
                 dir="ltr"
               />
             </div>
+
+            {/* City — display current + cityId dropdown */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-surface-600 dark:text-surface-400">
-                {lang(t.city)}{" "}
-                <span className="font-normal text-surface-400">
-                  ({lang(t.optional)})
-                </span>
+                {lang(t.city)}
               </label>
-              <input
-                value={profile.city}
+
+              {profile.city && (
+                <p className="text-xs text-surface-500 dark:text-surface-400">
+                  {lang(t.currentCity)}: {profile.city}
+                </p>
+              )}
+
+              <select
+                value={profile.cityId}
                 onChange={(e) =>
-                  setProfile({ ...profile, city: e.target.value })
+                  setProfile({ ...profile, cityId: e.target.value })
                 }
                 className={inputClasses}
-              />
+                disabled={citiesLoading}
+              >
+                <option value="">
+                  {citiesLoading ? lang(t.loadingCities) : lang(t.changeCity)}
+                </option>
+                {cities.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {isAr ? c.nameAr : c.nameEn}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-5 mt-5">
@@ -1323,10 +1357,7 @@ export const SettingsPage: React.FC = () => {
           {hoursLoading ? (
             <div className="space-y-2">
               {[1, 2, 3, 4, 5, 6, 7].map((i) => (
-                <div
-                  key={i}
-                  className="skeleton h-16 w-full rounded-xl"
-                />
+                <div key={i} className="skeleton h-16 w-full rounded-xl" />
               ))}
             </div>
           ) : (
@@ -1434,7 +1465,7 @@ export const SettingsPage: React.FC = () => {
                 {store?.logoUrl ? (
                   <>
                     <img
-                      src={getFixedImageUrl(store.logoUrl, store?.id, "logo")}
+                      src={resolveMediaUrl(store.logoUrl) ?? ""}
                       alt="Logo"
                       className="w-full h-full object-cover"
                       onError={(e) => {
@@ -1538,18 +1569,7 @@ export const SettingsPage: React.FC = () => {
                 {store?.coverImageUrl ? (
                   <>
                     <img
-                      src={(() => {
-                        const url = store.coverImageUrl;
-                        const baseUrl = import.meta.env.VITE_API_BASE_URL || "";
-                        const cleanUrl = url
-                          .replace(/^\/uploads\//, "/")
-                          .replace(/\/uploads\//g, "/")
-                          .replace(/\/Store\//g, "/stores/");
-                        if (cleanUrl.startsWith("/")) {
-                          return `${baseUrl}${cleanUrl}`;
-                        }
-                        return cleanUrl;
-                      })()}
+                      src={resolveMediaUrl(store.coverImageUrl) ?? ""}
                       alt="Cover"
                       className="w-full h-full object-cover"
                       onError={(e) => {

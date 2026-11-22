@@ -6,7 +6,6 @@ import type {
   UpdateOfferDto,
 } from "@shared/types";
 
-
 export type GroupDealDto = OfferDto & { type: "GroupDeal" };
 
 export type CreateGroupDealDto = Omit<CreateOfferDto, "type">;
@@ -36,6 +35,18 @@ function assertGroupDeal(offer: OfferDto): GroupDealDto {
     );
   }
   return offer as GroupDealDto;
+}
+
+/**
+ * Derives the `productIds[]` array
+ */
+function deriveProductIds(
+  items: { productId: string }[] | undefined,
+): string[] {
+  if (!items || items.length === 0) return [];
+  return Array.from(
+    new Set(items.map((i) => i.productId).filter(Boolean)),
+  );
 }
 
 // ═════════════════════════════════════════════════════════════════════
@@ -74,18 +85,16 @@ export function useCreateGroupDeal() {
 
   return useMutation<GroupDealDto, Error, CreateGroupDealDto>({
     mutationFn: async (dto) => {
-      // Inject the discriminator — group deals ARE offers with type="GroupDeal".
-      // Caller passes items[] for the multi-product group; the server expects
-      // items[] (not productIds[]) for GroupDeal offers.
+      const productIds = deriveProductIds(dto.items);
+
       const created = await storeApi.offers.create({
         ...dto,
         type: "GroupDeal",
+        productIds: productIds.length > 0 ? productIds : undefined,
       });
       return assertGroupDeal(created);
     },
     onSuccess: () => {
-      // Invalidate both caches — group deals are also visible in the
-      // offers list, so a fresh offer needs to appear in both UIs.
       queryClient.invalidateQueries({ queryKey: [GROUP_DEALS_KEY] });
       queryClient.invalidateQueries({ queryKey: ["storeOffers"] });
     },
@@ -93,11 +102,7 @@ export function useCreateGroupDeal() {
 }
 
 /**
- * Update — id moves into mutation args so one hook instance can edit
- * multiple rows.
- *
- *   const update = useUpdateGroupDeal();
- *   update.mutate({ dealId, dto });
+ * Update
  */
 export function useUpdateGroupDeal() {
   const queryClient = useQueryClient();
@@ -141,8 +146,7 @@ export function useDeleteGroupDeal() {
 }
 
 /**
- * Toggle active — exposes the endpoint the UI needs but the old hook
- * never surfaced. Toggles the underlying offer's `isActive`.
+ * Toggle active
  */
 export function useToggleGroupDeal() {
   const queryClient = useQueryClient();

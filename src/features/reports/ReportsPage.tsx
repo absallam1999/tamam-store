@@ -240,77 +240,510 @@ const Icon = {
 // PDF Download Helper
 // ============================================
 
+// ============================================
+// PDF Download Helper
+// ============================================
+
 const downloadPDF = (reportData: any, periodLabel: string, isAr: boolean) => {
-  const now = new Date().toLocaleDateString(isAr ? "ar-EG" : "en-US", {
+  if (!reportData) return;
+
+  const now = new Date().toLocaleString(isAr ? "ar-EG" : "en-US", {
     year: "numeric",
     month: "long",
     day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
   const lang = (obj: { ar: string; en: string }) => (isAr ? obj.ar : obj.en);
 
+  // Absolute URLs — the print window is loaded from a blob: URL and needs
+  // fully qualified paths for the logo and any product thumbnails.
+  const origin = window.location.origin;
+  const logoUrl = `${origin}/icon.svg`;
+
+  // Defensive HTML escape — protects against product names containing <, >, &.
+  const esc = (v: any): string =>
+    String(v ?? "").replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[c]!,
+    );
+
+  const resolveImg = (url: any): string => {
+    const s = String(url ?? "").trim();
+    if (!s) return "";
+    if (/^https?:\/\//i.test(s)) return s;
+    if (s.startsWith("/")) return `${origin}${s}`;
+    return `${origin}/${s}`;
+  };
+
+  const isRtl = isAr ? "rtl" : "ltr";
+
+  // Aggregate hours into 3-hour quarters — matches the on-screen chart.
+  const hourQuarters: { label: string; count: number }[] = [];
+  if (Array.isArray(reportData.ordersByHour)) {
+    for (let i = 0; i < 24; i += 3) {
+      const bucket = reportData.ordersByHour.filter(
+        (h: any) => h.hour >= i && h.hour < i + 3,
+      );
+      hourQuarters.push({
+        label: `${String(i).padStart(2, "0")}:00`,
+        count: bucket.reduce((s: number, h: any) => s + h.count, 0),
+      });
+    }
+  }
+
+  const maxRevenue = Math.max(
+    ...((reportData.revenueChart ?? []).map((d: any) => d.revenue) as number[]),
+    1,
+  );
+  const maxStatus = Math.max(
+    ...((reportData.orderStatusBreakdown ?? []).map(
+      (d: any) => d.count,
+    ) as number[]),
+    1,
+  );
+  const maxHour = Math.max(...hourQuarters.map((q) => q.count), 1);
+  const maxDay = Math.max(
+    ...((reportData.ordersByDay ?? []).map((d: any) => d.count) as number[]),
+    1,
+  );
+
+  const renderBar = (
+    label: string,
+    value: number,
+    max: number,
+    color: string,
+    valueLabel: string,
+    showInlineValue = "",
+  ) => {
+    const pct = Math.min(100, (value / max) * 100);
+    return `<div class="bar-row">
+      <span class="bar-label">${esc(label)}</span>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:${Math.max(pct, 1)}%;background:${color};">
+          ${showInlineValue && pct > 20 ? esc(showInlineValue) : ""}
+        </div>
+      </div>
+      <span class="bar-value">${esc(valueLabel)}</span>
+    </div>`;
+  };
+
   const htmlContent = `<!DOCTYPE html>
-<html dir="${isAr ? "rtl" : "ltr"}">
-<head><meta charset="UTF-8"><title>${lang(t.storeReport)} - ${periodLabel}</title>
+<html dir="${isRtl}" lang="${isAr ? "ar" : "en"}">
+<head>
+<meta charset="UTF-8">
+<title>${esc(lang(t.storeReport))} — ${esc(periodLabel)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  @page { size: A4; margin: 16mm 14mm; }
+  @media print {
+    body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: system-ui, -apple-system, sans-serif; padding: 40px; color: #1a1a1a; max-width: 900px; margin: auto; }
-  h1 { font-size: 28px; margin-bottom: 8px; color: #111; }
-  .subtitle { color: #666; font-size: 14px; margin-bottom: 32px; }
-  .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 32px; }
-  .stat-card { background: #f8f8f8; padding: 20px; border-radius: 12px; border: 1px solid #eee; }
-  .stat-card .label { font-size: 11px; color: #888; margin-bottom: 8px; text-transform: uppercase; }
-  .stat-card .value { font-size: 24px; font-weight: 700; color: #111; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
-  th { background: #f8f8f8; padding: 12px 16px; text-align: ${isAr ? "right" : "left"}; font-size: 12px; color: #888; border-bottom: 2px solid #e5e5e5; }
-  td { padding: 12px 16px; border-bottom: 1px solid #eee; font-size: 14px; }
-  .section { margin-bottom: 32px; }
-  .section h3 { font-size: 18px; margin-bottom: 16px; color: #111; padding-bottom: 8px; border-bottom: 2px solid #6366f1; }
-  .bar-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-  .bar-label { width: 100px; font-size: 12px; color: #666; }
-  .bar-track { flex: 1; height: 24px; background: #eee; border-radius: 8px; overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: 8px; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; color: white; font-size: 11px; font-weight: 500; }
-  .bar-value { width: 80px; font-size: 13px; font-weight: 600; color: #111; }
-  .trend-up { color: #16a34a; font-weight: 600; }
-  .trend-down { color: #dc2626; font-weight: 600; }
-  .footer { margin-top: 48px; padding-top: 16px; border-top: 2px solid #e5e5e5; font-size: 11px; color: #999; text-align: center; }
-</style></head>
+  html { font-size: 12px; }
+  body {
+    font-family: ${
+      isAr
+        ? "'Cairo', 'Tajawal', system-ui, sans-serif"
+        : "'Inter', system-ui, -apple-system, sans-serif"
+    };
+    color: #1e293b;
+    line-height: 1.55;
+  }
+
+  /* ── Header ─────────────────────────────────────── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 16px;
+    border-bottom: 3px solid #6366f1;
+    margin-bottom: 22px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-logo {
+    width: 46px; height: 46px;
+    border-radius: 10px;
+    background: #eef2ff;
+    padding: 6px;
+    flex-shrink: 0;
+  }
+  .brand-text h1 {
+    font-size: 20px;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+    margin-bottom: 2px;
+  }
+  .brand-text .tagline {
+    font-size: 10px;
+    font-weight: 600;
+    color: #6366f1;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .meta {
+    text-align: ${isAr ? "left" : "right"};
+    font-size: 10px;
+    color: #64748b;
+    line-height: 1.7;
+  }
+  .meta strong { color: #1e293b; font-weight: 600; }
+
+  /* ── Sections ──────────────────────────────────── */
+  .section { margin-bottom: 22px; page-break-inside: avoid; }
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .section-title::before {
+    content: "";
+    width: 4px; height: 14px;
+    background: #6366f1;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  /* ── Stats ─────────────────────────────────────── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+  }
+  .stat {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    padding: 10px 12px;
+    page-break-inside: avoid;
+  }
+  .stat .label {
+    font-size: 8.5px;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    margin-bottom: 5px;
+  }
+  .stat .value {
+    font-size: 15px;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+  }
+
+  /* ── Bar chart ─────────────────────────────────── */
+  .bar-list { display: flex; flex-direction: column; gap: 5px; }
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    page-break-inside: avoid;
+  }
+  .bar-label {
+    width: 75px; flex-shrink: 0;
+    color: #475569; font-weight: 500;
+    text-align: ${isAr ? "right" : "left"};
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .bar-track {
+    flex: 1;
+    height: 15px;
+    background: #f1f5f9;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: ${isAr ? "flex-start" : "flex-end"};
+    padding: 0 5px;
+    color: white;
+    font-size: 8px;
+    font-weight: 600;
+    min-width: 2px;
+  }
+  .bar-value {
+    width: 65px; flex-shrink: 0;
+    font-weight: 600;
+    color: #0f172a;
+    text-align: ${isAr ? "left" : "right"};
+    font-size: 10px;
+  }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    page-break-inside: avoid;
+  }
+  .col { min-width: 0; }
+
+  /* ── Table ─────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; font-size: 10px; page-break-inside: avoid; }
+  thead { background: #f8fafc; }
+  th {
+    padding: 8px 10px;
+    text-align: ${isAr ? "right" : "left"};
+    font-size: 9px;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1.5px solid #e2e8f0;
+  }
+  td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #334155;
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  .product-cell { display: flex; align-items: center; gap: 8px; }
+  .product-img {
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    background: #f1f5f9;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+  .product-name {
+    font-weight: 600;
+    color: #0f172a;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .trend-up { color: #16a34a; font-weight: 700; }
+  .trend-down { color: #dc2626; font-weight: 700; }
+
+  /* ── Footer ────────────────────────────────────── */
+  .footer {
+    margin-top: 28px;
+    padding-top: 10px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 9px;
+    color: #94a3b8;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .footer-brand { display: flex; align-items: center; gap: 6px; }
+  .footer-logo { width: 14px; height: 14px; opacity: 0.55; }
+</style>
+</head>
 <body>
-  <h1>${lang(t.storeReport)}</h1>
-  <p class="subtitle">${lang(t.period)}: ${periodLabel} &bull; ${lang(t.generatedOn)}: ${now}</p>
-  <div class="section"><h3>${lang(t.summary)}</h3>
-    <div class="stats">
-      <div class="stat-card"><span class="label">${lang(t.totalRevenue)}</span><div class="value">${formatCurrency(reportData.summary.totalRevenue)}</div></div>
-      <div class="stat-card"><span class="label">${lang(t.totalOrders)}</span><div class="value">${reportData.summary.totalOrders}</div></div>
-      <div class="stat-card"><span class="label">${lang(t.completionRate)}</span><div class="value">${reportData.summary.completionRate}%</div></div>
-      <div class="stat-card"><span class="label">${lang(t.cancellationRate)}</span><div class="value">${reportData.summary.cancellationRate}%</div></div>
+
+  <!-- Header -->
+  <div class="header">
+    <div class="brand">
+      <img src="${logoUrl}" alt="Tamam" class="brand-logo" onerror="this.style.display='none'" />
+      <div class="brand-text">
+        <h1>${esc(lang(t.storeReport))}</h1>
+        <div class="tagline">Tamam Store Dashboard</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div><strong>${esc(lang(t.period))}:</strong> ${esc(periodLabel)}</div>
+      <div><strong>${esc(lang(t.generatedOn))}:</strong> ${esc(now)}</div>
     </div>
   </div>
-  <div class="section"><h3>${lang(t.revenueOverTime)}</h3>
-    ${reportData.revenueChart
-      .map((p: any) => {
-        const maxRev = Math.max(
-          ...reportData.revenueChart.map((d: any) => d.revenue),
-          1,
-        );
-        return `<div class="bar-row"><span class="bar-label">${p.label}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, (p.revenue / maxRev) * 100)}%; background:#6366f1;">${p.orders > 0 ? p.orders + " " + (isAr ? "طلب" : "ord") : ""}</div></div><span class="bar-value">${formatCurrency(p.revenue)}</span></div>`;
-      })
-      .join("")}
-  </div>
-  <div class="section"><h3>${lang(t.topProducts)}</h3>
-    <table><thead><tr><th>${lang(t.product)}</th><th>${lang(t.sold)}</th><th>${lang(t.revenue)}</th><th>${lang(t.trend)}</th></tr></thead>
-    <tbody>${reportData.topProducts.map((p: any) => `<tr><td>${isAr ? p.nameAr : p.nameEn || p.name}</td><td>${p.totalSold}</td><td>${formatCurrency(p.totalRevenue)}</td><td class="${p.trend >= 0 ? "trend-up" : "trend-down"}">${p.trend >= 0 ? "+" : ""}${p.trend}%</td></tr>`).join("")}</tbody></table>
-  </div>
-  <div class="footer">Tamam Store Dashboard &bull; ${now}</div>
-</body></html>`;
 
-  const blob = new Blob([htmlContent], { type: "text/html" });
+  <!-- Summary -->
+  <div class="section">
+    <h2 class="section-title">${esc(lang(t.summary))}</h2>
+    <div class="stats">
+      <div class="stat">
+        <div class="label">${esc(lang(t.totalRevenue))}</div>
+        <div class="value">${esc(formatCurrency(reportData.summary.totalRevenue))}</div>
+      </div>
+      <div class="stat">
+        <div class="label">${esc(lang(t.totalOrders))}</div>
+        <div class="value">${esc(reportData.summary.totalOrders)}</div>
+      </div>
+      <div class="stat">
+        <div class="label">${esc(lang(t.totalProducts))}</div>
+        <div class="value">${esc(reportData.summary.totalProducts)}</div>
+      </div>
+      <div class="stat">
+        <div class="label">${esc(lang(t.completionRate))}</div>
+        <div class="value">${esc(reportData.summary.completionRate)}%</div>
+      </div>
+      <div class="stat">
+        <div class="label">${esc(lang(t.cancellationRate))}</div>
+        <div class="value">${esc(reportData.summary.cancellationRate)}%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Revenue + Status -->
+  <div class="section two-col">
+    <div class="col">
+      <h2 class="section-title">${esc(lang(t.revenueOverTime))}</h2>
+      <div class="bar-list">
+        ${(reportData.revenueChart ?? [])
+          .map((p: any) =>
+            renderBar(
+              p.label,
+              p.revenue,
+              maxRevenue,
+              "#6366f1",
+              formatCurrency(p.revenue),
+              p.orders > 0 ? `${p.orders} ${isAr ? "طلب" : "ord"}` : "",
+            ),
+          )
+          .join("")}
+      </div>
+    </div>
+    <div class="col">
+      <h2 class="section-title">${esc(lang(t.ordersByStatus))}</h2>
+      <div class="bar-list">
+        ${(reportData.orderStatusBreakdown ?? [])
+          .map((s: any) =>
+            renderBar(
+              s.label,
+              s.count,
+              maxStatus,
+              s.color || "#6366f1",
+              String(s.count),
+            ),
+          )
+          .join("")}
+      </div>
+    </div>
+  </div>
+
+  <!-- Hour + Day -->
+  <div class="section two-col">
+    <div class="col">
+      <h2 class="section-title">${esc(lang(t.ordersByHour))}</h2>
+      <div class="bar-list">
+        ${hourQuarters
+          .map((q) =>
+            renderBar(q.label, q.count, maxHour, "#3b82f6", String(q.count)),
+          )
+          .join("")}
+      </div>
+    </div>
+    <div class="col">
+      <h2 class="section-title">${esc(lang(t.ordersByDay))}</h2>
+      <div class="bar-list">
+        ${(reportData.ordersByDay ?? [])
+          .map((d: any) =>
+            renderBar(d.day, d.count, maxDay, "#8b5cf6", String(d.count)),
+          )
+          .join("")}
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Products -->
+  ${
+    (reportData.topProducts ?? []).length > 0
+      ? `<div class="section">
+          <h2 class="section-title">${esc(lang(t.topProducts))}</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>${esc(lang(t.product))}</th>
+                <th>${esc(lang(t.sold))}</th>
+                <th>${esc(lang(t.revenue))}</th>
+                <th>${esc(lang(t.trend))}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${reportData.topProducts
+                .map((p: any) => {
+                  const name = isAr ? p.nameAr : p.nameEn || p.name;
+                  const img = resolveImg(p.image);
+                  return `<tr>
+                    <td>
+                      <div class="product-cell">
+                        ${
+                          img
+                            ? `<img src="${esc(img)}" class="product-img" alt="" onerror="this.style.display='none'" />`
+                            : `<div class="product-img"></div>`
+                        }
+                        <span class="product-name">${esc(name)}</span>
+                      </div>
+                    </td>
+                    <td>${esc(p.totalSold)}</td>
+                    <td><strong>${esc(formatCurrency(p.totalRevenue))}</strong></td>
+                    <td class="${p.trend >= 0 ? "trend-up" : "trend-down"}">
+                      ${p.trend >= 0 ? "+" : ""}${esc(p.trend)}%
+                    </td>
+                  </tr>`;
+                })
+                .join("")}
+            </tbody>
+          </table>
+        </div>`
+      : ""
+  }
+
+  <!-- Footer -->
+  <div class="footer">
+    <div class="footer-brand">
+      <img src="${logoUrl}" alt="" class="footer-logo" onerror="this.style.display='none'" />
+      <span>Tamam Store Dashboard</span>
+    </div>
+    <span>${esc(now)}</span>
+  </div>
+
+</body>
+</html>`;
+
+  // Open print window
+  const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const printWindow = window.open(url, "_blank");
-  if (printWindow) {
-    printWindow.onload = () => {
+
+  if (!printWindow) {
+    URL.revokeObjectURL(url);
+    throw new Error(
+      isAr
+        ? "تم حجب النافذة المنبثقة — يرجى السماح بها لهذا الموقع"
+        : "Popup blocked — please allow popups for this site",
+    );
+  }
+
+  // Revoke after 60s — the print dialog usually closes well within that time;
+  // images are absolute URLs so they aren't affected by the blob revoke.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+
+  const trigger = () => {
+    try {
+      printWindow.focus();
       printWindow.print();
-      URL.revokeObjectURL(url);
-    };
+    } catch {
+      /* some browsers block print() until the window is fully interactive */
+    }
+  };
+
+  if (printWindow.document.readyState === "complete") {
+    trigger();
+  } else {
+    printWindow.onload = trigger;
   }
 };
 

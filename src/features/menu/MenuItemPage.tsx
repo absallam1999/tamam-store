@@ -16,6 +16,7 @@ import {
   useProductOptions,
   useCreateProductOption,
   useDeleteProductOption,
+  useSetProductImage,
 } from "@shared/hooks/useStoreProducts";
 import { getProductImage } from "@/shared/utils/Parser";
 import { useStore } from "@/app/providers/StoreProvider";
@@ -261,12 +262,13 @@ export const MenuItemPage: React.FC = () => {
     useProductOptions(isEdit ? itemId : undefined);
 
   const createProduct = useCreateProduct();
-  const updateProduct = useUpdateProduct(); // ← no id in hook
+  const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
   const setAvailability = useSetProductAvailability();
   const setFeatured = useSetProductFeatured();
+  const setImage = useSetProductImage();
 
-  const createOption = useCreateProductOption(); // ← no id in hook
+  const createOption = useCreateProductOption();
   const deleteOption = useDeleteProductOption();
 
   const isLoading =
@@ -277,7 +279,8 @@ export const MenuItemPage: React.FC = () => {
     createOption.isPending ||
     deleteOption.isPending ||
     setAvailability.isPending ||
-    setFeatured.isPending;
+    setFeatured.isPending ||
+    setImage.isPending;
   const isDeleting = deleteProduct.isPending;
 
   const [form, setForm] = useState<MenuItemForm>({
@@ -527,7 +530,6 @@ export const MenuItemPage: React.FC = () => {
 
     try {
       if (isNew) {
-        // ── 1. Create product ─────────────────────────────────────
         const dto: CreateProductDto = {
           menuCategoryId: form.menuCategoryId,
           nameAr: form.nameAr,
@@ -540,12 +542,17 @@ export const MenuItemPage: React.FC = () => {
           isFeatured: form.isFeatured,
           sku: form.sku,
           barcode: form.barcode,
-          imageUrl: form.imageUrl,
         };
 
         const created = await createProduct.mutateAsync(dto);
 
-        // ── 2. Create options against the new product ─────────────
+        if (form.imageUrl) {
+          await setImage.mutateAsync({
+            productId: created.id,
+            imageUrl: form.imageUrl,
+          });
+        }
+
         for (const group of options) {
           await createOption.mutateAsync({
             productId: created.id,
@@ -568,7 +575,6 @@ export const MenuItemPage: React.FC = () => {
 
         toast.success(lang(t.addSuccess));
       } else {
-        // ── 1. Update product core fields ─────────────────────────
         const dto: UpdateProductDto = {
           nameAr: form.nameAr,
           nameEn: form.nameEn,
@@ -578,13 +584,24 @@ export const MenuItemPage: React.FC = () => {
           preparationTimeMinutes: Number(form.preparationTimeMinutes) || 15,
           sku: form.sku,
           barcode: form.barcode,
-          imageUrl: form.imageUrl,
         };
 
         await updateProduct.mutateAsync({ productId: itemId!, dto });
 
-        // ── 2. isAvailable / isFeatured via dedicated PATCH endpoints
-        if (existingProduct && existingProduct.isAvailable !== form.isAvailable) {
+        // ◄ Persist image only if changed from the server value
+        const originalImageUrl = existingProduct?.imageUrl ?? undefined;
+        const nextImageUrl = form.imageUrl ?? undefined;
+        if (nextImageUrl !== originalImageUrl) {
+          await setImage.mutateAsync({
+            productId: itemId!,
+            imageUrl: nextImageUrl ?? "",
+          });
+        }
+
+        if (
+          existingProduct &&
+          existingProduct.isAvailable !== form.isAvailable
+        ) {
           await setAvailability.mutateAsync({
             productId: itemId!,
             isAvailable: form.isAvailable,
@@ -597,7 +614,6 @@ export const MenuItemPage: React.FC = () => {
           });
         }
 
-        // ── 3. Options diff ───────────────────────────────────────
         const existingLocalOptions: LocalOptionGroup[] = existingOptions.map(
           (group) => ({
             id: group.id,

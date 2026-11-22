@@ -1,8 +1,8 @@
-import i18n from 'i18next';
-import { initReactI18next } from 'react-i18next';
-import LanguageDetector from 'i18next-browser-languagedetector';
-import arTranslation from './locales/ar/translation';
-import enTranslation from './locales/en/translation';
+import i18n from "i18next";
+import { initReactI18next } from "react-i18next";
+import LanguageDetector from "i18next-browser-languagedetector";
+import arTranslation from "./locales/ar/translation";
+import enTranslation from "./locales/en/translation";
 
 const resources = {
   ar: {
@@ -15,14 +15,14 @@ const resources = {
 
 // Get initial language with proper priority
 const getInitialLanguage = (): string => {
-  // 1. Check localStorage first
-  const stored = localStorage.getItem('store-language');
-  if (stored && (stored === 'ar' || stored === 'en')) {
+  // Check localStorage first
+  const stored = localStorage.getItem("fleet-supervisor-language");
+  if (stored && (stored === "ar" || stored === "en")) {
     return stored;
   }
-  
-  // 2. If no stored preference, default to Arabic
-  return 'ar';
+
+  // If no stored preference
+  return "ar";
 };
 
 i18n
@@ -30,17 +30,17 @@ i18n
   .use(initReactI18next)
   .init({
     resources,
-    lng: getInitialLanguage(), // Set initial language explicitly
-    fallbackLng: 'ar',
-    supportedLngs: ['ar', 'en'],
+    lng: getInitialLanguage(),
+    fallbackLng: "ar",
+    supportedLngs: ["ar", "en"],
     debug: import.meta.env.DEV,
     interpolation: {
       escapeValue: false,
     },
     detection: {
-      order: ['localStorage', 'navigator'],
-      lookupLocalStorage: 'store-language',
-      caches: ['localStorage'],
+      order: ["localStorage", "navigator"],
+      lookupLocalStorage: "fleet-supervisor-language",
+      caches: ["localStorage"],
     },
     // Force Arabic if no preference is set
     returnNull: false,

@@ -8,7 +8,7 @@ import { PageLoader } from "@shared/components/PageLoader";
 import { cn } from "@shared/utils/cn";
 
 /**
- * AuthLayout — Premium Bilingual
+ * AuthLayout
  */
 
 // ============================================
@@ -263,38 +263,92 @@ const loginFeatures = [
   },
 ];
 
+/** Shown on /auth/signup — new register features */
+const registerFeatures = [
+  {
+    titleAr: "مراجعة سريعة",
+    titleEn: "Fast Review",
+    descriptionAr: "نراجع الطلبات خلال 24-48 ساعة",
+    descriptionEn: "Applications reviewed within 24–48h",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+        />
+      </svg>
+    ),
+  },
+  {
+    titleAr: "إشعار فوري",
+    titleEn: "Instant Notification",
+    descriptionAr: "سنعلمك فور الموافقة على طلبك",
+    descriptionEn: "You'll be notified the moment you're approved",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"
+        />
+      </svg>
+    ),
+  },
+  {
+    titleAr: "دعم كامل",
+    titleEn: "Full Support",
+    descriptionAr: "فريق دعم جاهز لمساعدتك",
+    descriptionEn: "Our support team is here to help",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth={1.5}
+        stroke="currentColor"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"
+        />
+      </svg>
+    ),
+  },
+];
+
 // ============================================
 // API Session Tracking
 // ============================================
 
-/**
- * Fetch the last session data from the API (if available).
- * Falls back to localStorage for backward compatibility.
- */
 const getLastSession = async (): Promise<LastSession | null> => {
   try {
-    // 1) Try the backend endpoint first (if you add one)
-    // const response = await storeApi.getLastSession();
-    // if (response) return mapSessionDto(response);
-
-    // 2) Fallback to localStorage for now
     const saved = localStorage.getItem("last-session");
     if (saved) return JSON.parse(saved);
   } catch {
-    // Silently fail — session info is purely informational
+    /* informational only */
   }
   return null;
 };
 
-/**
- * Save session data after successful login.
- * Called from AuthProvider or the Login form itself.
- */
 export const saveLastSession = (session: LastSession): void => {
   try {
     localStorage.setItem("last-session", JSON.stringify(session));
   } catch {
-    // Storage full or unavailable — ignore
+    /* ignore */
   }
 };
 
@@ -489,34 +543,9 @@ const SessionInfo: React.FC<{ session: LastSession | null; isAr: boolean }> = ({
 // Auth Footer Component
 // ============================================
 
-const AuthFooter: React.FC<{ isLogin: boolean; isAr: boolean }> = ({
-  isLogin,
-  isAr,
-}) => {
+const AuthFooter: React.FC<{ isAr: boolean }> = ({ isAr }) => {
   return (
     <div className="mt-6 text-center space-y-3">
-      {isLogin ? (
-        <p className="text-sm text-surface-500 dark:text-surface-400">
-          {isAr ? "ليس لديك حساب؟" : "Don't have an account?"}{" "}
-          <Link
-            to="/auth/signup"
-            className="font-semibold text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
-          >
-            {isAr ? "إنشاء حساب جديد" : "Create one"}
-          </Link>
-        </p>
-      ) : (
-        <p className="text-sm text-surface-500 dark:text-surface-400">
-          {isAr ? "لديك حساب بالفعل؟" : "Already have an account?"}{" "}
-          <Link
-            to="/auth/login"
-            className="font-semibold text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 transition-colors"
-          >
-            {isAr ? "تسجيل الدخول" : "Sign in"}
-          </Link>
-        </p>
-      )}
-
       <a
         href="https://tamamapp.net/contact"
         target="_blank"
@@ -560,7 +589,12 @@ export const AuthLayout: React.FC = () => {
   const isDark = resolvedTheme === "dark";
   const isAr = currentLanguage === "ar";
   const [lastSession, setLastSession] = useState<LastSession | null>(null);
+
   const isLogin = location.pathname === "/auth/login";
+  const isRegister = location.pathname === "/auth/signup";
+  const isRecovery =
+    location.pathname === "/auth/forgot-password" ||
+    location.pathname === "/auth/reset-password";
 
   const content = routeContent[location.pathname] || {
     taglineAr: "لوحة تحكم المتجر",
@@ -599,12 +633,8 @@ export const AuthLayout: React.FC = () => {
     );
   }
 
-  if (
-    isAuthenticated &&
-    !["/auth/forgot-password", "/auth/reset-password"].includes(
-      location.pathname,
-    )
-  ) {
+  // ── Redirect authenticated users away from auth routes ──
+  if (isAuthenticated && !isRecovery) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -626,7 +656,7 @@ export const AuthLayout: React.FC = () => {
       </a>
 
       {/* ============================================ */}
-      {/* Left Panel — Brand Experience */}
+      {/* Left Panel */}
       {/* ============================================ */}
       <div
         className={cn(
@@ -641,11 +671,10 @@ export const AuthLayout: React.FC = () => {
             "absolute inset-0 transition-colors duration-700",
             isDark
               ? "bg-gradient-to-br from-surface-900 via-primary-950 to-surface-950"
-              : "bg-gradient-to-br from-primary-600 via-primary-700 to-emerald-600",
+              : "bg-gradient-to-br from-primary-600 via-primary-700 to-primary-600",
           )}
         />
 
-        {/* Subtle Pattern */}
         <div
           className="absolute inset-0 opacity-[0.03] dark:opacity-[0.05]"
           style={{
@@ -655,7 +684,6 @@ export const AuthLayout: React.FC = () => {
           aria-hidden="true"
         />
 
-        {/* Glowing Orbs */}
         <div
           className={cn(
             "absolute -top-32 -end-32 w-96 h-96 rounded-full blur-[120px] animate-float",
@@ -663,16 +691,14 @@ export const AuthLayout: React.FC = () => {
           )}
           aria-hidden="true"
         />
-
         <div
           className={cn(
             "absolute -bottom-40 -start-40 w-[450px] h-[450px] rounded-full blur-[120px]",
-            isDark ? "bg-emerald-800/15" : "bg-emerald-300/12",
+            isDark ? "bg-primary-800/15" : "bg-primary-300/12",
           )}
           aria-hidden="true"
         />
 
-        {/* Content */}
         <div className="relative z-10 w-full max-w-lg">
           {/* Logo & Brand */}
           <div className="flex items-center gap-5 mb-12">
@@ -705,8 +731,7 @@ export const AuthLayout: React.FC = () => {
           </div>
 
           {/* Route Content */}
-          <div className={cn("flex gap-4")}>
-            {/* Icon */}
+          <div className="flex gap-4">
             <div
               className={cn(
                 "w-10 h-10 xl:w-12 xl:h-12 rounded-xl flex-shrink-0 mt-0.5",
@@ -719,7 +744,6 @@ export const AuthLayout: React.FC = () => {
               {content.icon(isAr)}
             </div>
 
-            {/* Text */}
             <div className="min-w-0 flex-1">
               <h2 className="text-xl xl:text-2xl 2xl:text-3xl font-bold text-white leading-tight">
                 {isAr ? content.taglineAr : content.taglineEn}
@@ -730,7 +754,7 @@ export const AuthLayout: React.FC = () => {
             </div>
           </div>
 
-          {/* Session Info */}
+          {/* ── Session / Features ── */}
           {isLogin && lastSession ? (
             <div className="mt-10 animate-fade-in-up stagger-2">
               <SessionInfo session={lastSession} isAr={isAr} />
@@ -761,6 +785,80 @@ export const AuthLayout: React.FC = () => {
                 </div>
               ))}
             </div>
+          ) : isRegister ? (
+            <>
+              <div className="mt-10 space-y-3 animate-fade-in-up stagger-2">
+                <div
+                  className={cn(
+                    "mt-6 p-4 rounded-2xl",
+                    "bg-info-500/10 dark:bg-info-500/10",
+                    "border border-info-500/25 dark:border-info-500/20",
+                    "backdrop-blur-sm",
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className={cn(
+                        "w-8 h-8 rounded-lg flex-shrink-0",
+                        "bg-info-500/20 dark:bg-info-500/15",
+                        "flex items-center justify-center",
+                        "text-info-500 dark:text-info-400",
+                      )}
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={2}
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z"
+                        />
+                      </svg>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white">
+                        {isAr
+                          ? "ما الذي يحدث بعد التقديم؟"
+                          : "What happens after you apply?"}
+                      </p>
+                      <p className="text-xs text-white/55 mt-1 leading-relaxed">
+                        {isAr
+                          ? "لا يتم إنشاء الحساب فوراً. سيراجع فريقنا طلبك خلال 24-48 ساعة، وستتلقى رسالة نصية برقمك فور الموافقة، وبعدها ستتمكن من تسجيل الدخول."
+                          : "Your account is not created instantly. Our team reviews your application within 24–48h, then you'll receive an SMS at the provided number. After approval you can log in."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {registerFeatures.map((feature, idx) => (
+                  <div
+                    key={idx}
+                    className={cn(
+                      "flex items-start gap-3.5 p-3.5 rounded-xl",
+                      "bg-white/8 backdrop-blur-sm",
+                      "border border-white/10",
+                      "hover:bg-white/12 transition-colors duration-200",
+                    )}
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 text-white/70">
+                      {feature.icon}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white">
+                        {isAr ? feature.titleAr : feature.titleEn}
+                      </p>
+                      <p className="text-xs text-white/50 mt-0.5">
+                        {isAr ? feature.descriptionAr : feature.descriptionEn}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="mt-10 space-y-3 animate-fade-in-up stagger-2">
               {features.map((feature, idx) => (
@@ -830,11 +928,10 @@ export const AuthLayout: React.FC = () => {
           "relative",
         )}
       >
-        {/* Top Right Controls — Language + Theme Toggle */}
+        {/* Top-right controls */}
         <div className="absolute top-4 end-4 z-40 flex items-center gap-1.5">
           <LanguageSwitcher variant="navbar" className="shadow-sm" />
 
-          {/* Theme Toggle Button */}
           <button
             onClick={toggleTheme}
             className={cn(
@@ -888,12 +985,24 @@ export const AuthLayout: React.FC = () => {
               <img src="/icon.svg" alt="Tamam Logo" className="w-6 h-6" />
             </div>
             <span className="text-xl font-bold text-surface-900 dark:text-surface-100">
-              {isAr ? "تطبيق تمام" : "TamamApp"}
+              {isAr ? "تطبيق تمام" : "Tamam App"}
             </span>
           </Link>
           <p className="text-sm text-surface-500 dark:text-surface-400 px-4">
             {isAr ? content.descriptionAr : content.descriptionEn}
           </p>
+
+          {isRegister && (
+            <p className="mt-4 text-sm text-surface-500 dark:text-surface-400">
+              {isAr ? "لديك حساب بالفعل؟" : "Already have an account?"}{" "}
+              <Link
+                to="/auth/login"
+                className="font-semibold text-primary-600 dark:text-primary-400 hover:underline"
+              >
+                {isAr ? "تسجيل الدخول" : "Sign in"}
+              </Link>
+            </p>
+          )}
         </div>
 
         {/* Form Container */}
@@ -922,13 +1031,11 @@ export const AuthLayout: React.FC = () => {
           </Suspense>
         </div>
 
-        {/* Auth Footer */}
-        <AuthFooter isLogin={isLogin} isAr={isAr} />
+        <AuthFooter isAr={isAr} />
 
-        {/* Copyright */}
         <div className="mt-6 text-center">
           <p className="text-[11px] text-surface-400 dark:text-surface-500">
-            &copy; {new Date().getFullYear()} Tamam.{" "}
+            &copy; {new Date().getFullYear()} TamamApp.{" "}
             {isAr ? "جميع الحقوق محفوظة." : "All rights reserved."}
           </p>
         </div>

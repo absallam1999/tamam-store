@@ -781,6 +781,9 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
     setNotificationsOpen(false);
   };
 
+  const loc = (ar: string | undefined, en: string | undefined): string =>
+    isAr ? (ar ?? en ?? "") : (en ?? ar ?? "");
+
   return (
     <header
       className={cn(
@@ -1131,7 +1134,6 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
                               />
                             </svg>
                           </div>
-
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-2">
                               <p
@@ -1142,17 +1144,17 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
                                     : "font-semibold text-surface-900 dark:text-surface-100",
                                 )}
                               >
-                                {n.title}
+                                {loc(n.titleAr, n.titleEn) || "—"}
                               </p>
                               {!n.isRead && (
                                 <span className="w-1.5 h-1.5 rounded-full bg-primary-500 flex-shrink-0 mt-1.5 shadow-[0_0_6px_rgba(16,185,129,0.4)]" />
                               )}
                             </div>
                             <p className="text-xs text-surface-500 dark:text-surface-400 mt-0.5 line-clamp-2 leading-relaxed">
-                              {n.body}
+                              {loc(n.bodyAr, n.bodyEn)}
                             </p>
                             <p className="text-[10px] text-surface-400 dark:text-surface-500 mt-1.5 font-medium">
-                              {getRelativeTime(n.createdAt)}
+                              {getRelativeTime(n.createdAt, isAr ? "ar" : "en")}
                             </p>
                           </div>
                         </button>
@@ -1288,8 +1290,18 @@ const StoreTypeSelectionModal: React.FC<{
   isAr: boolean;
 }> = ({ isOpen, onClose, onComplete, isAr }) => {
   const toast = useToast();
+
+  const { store } = useStore();
+  const storeCategoryId = store?.storeCategoryId ?? undefined;
+  const hasCategory = !!storeCategoryId;
+
+  const storeCategoryName = isAr
+    ? store?.storeCategoryNameAr || store?.storeCategoryNameEn
+    : store?.storeCategoryNameEn || store?.storeCategoryNameAr;
+
   const { data: availableTypes = [], isLoading: typesLoading } =
-    useAvailableStoreTypes();
+    useAvailableStoreTypes(storeCategoryId);
+
   const addStoreType = useAddStoreType();
   const [selectedTypeId, setSelectedTypeId] = useState<string>("");
 
@@ -1343,9 +1355,13 @@ const StoreTypeSelectionModal: React.FC<{
                 {isAr ? "اختر نوع المتجر" : "Select Store Type"}
               </h3>
               <p className="text-xs text-surface-500 dark:text-surface-400">
-                {isAr
-                  ? "يرجى اختيار نوع المتجر للمتابعة"
-                  : "Please select a store type to continue"}
+                {hasCategory && storeCategoryName
+                  ? isAr
+                    ? `التصنيف: ${storeCategoryName}`
+                    : `Category: ${storeCategoryName}`
+                  : isAr
+                    ? "يرجى اختيار نوع المتجر للمتابعة"
+                    : "Please select a store type to continue"}
               </p>
             </div>
             <button
@@ -1371,7 +1387,36 @@ const StoreTypeSelectionModal: React.FC<{
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {typesLoading ? (
+          {/* ── No category assigned → warning, disable submit ───────── */}
+          {!hasCategory ? (
+            <div className="text-center py-6 space-y-3">
+              <div className="w-14 h-14 mx-auto rounded-full bg-warning-100 dark:bg-warning-900/30 flex items-center justify-center">
+                <svg
+                  className="w-7 h-7 text-warning-600 dark:text-warning-400"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+                  />
+                </svg>
+              </div>
+              <p className="text-sm font-semibold text-surface-900 dark:text-white">
+                {isAr
+                  ? "لم يتم تعيين تصنيف لمتجرك بعد"
+                  : "Your store has no category yet"}
+              </p>
+              <p className="text-xs text-surface-500 dark:text-surface-400 leading-relaxed max-w-xs mx-auto">
+                {isAr
+                  ? "يرجى التواصل مع الدعم لتعيين تصنيف المتجر قبل إضافة الأنواع"
+                  : "Please contact support to assign your store category before adding types"}
+              </p>
+            </div>
+          ) : typesLoading ? (
             <div className="flex items-center justify-center py-8">
               <svg
                 className="w-8 h-8 animate-spin text-primary-500"
@@ -1396,7 +1441,9 @@ const StoreTypeSelectionModal: React.FC<{
           ) : availableTypes.length === 0 ? (
             <div className="text-center py-6">
               <p className="text-sm text-surface-500 dark:text-surface-400">
-                {isAr ? "لا توجد أنواع متجر متاحة" : "No store types available"}
+                {isAr
+                  ? "لا توجد أنواع متجر متاحة لهذا التصنيف"
+                  : "No store types available for this category"}
               </p>
             </div>
           ) : (
@@ -1462,7 +1509,10 @@ const StoreTypeSelectionModal: React.FC<{
             <button
               type="submit"
               disabled={
-                !selectedTypeId || addStoreType.isPending || typesLoading
+                !hasCategory ||
+                !selectedTypeId ||
+                addStoreType.isPending ||
+                typesLoading
               }
               className={cn(
                 "flex-1 px-4 py-3 rounded-xl text-sm font-semibold transition-all duration-200",
@@ -1632,13 +1682,13 @@ export const StoreLayout: React.FC = () => {
 
   useEffect(() => {
     if (!store || hasCheckedStoreTypes) return;
-    if (!hasAnyType) {
+    if (!hasAnyType && store.storeCategoryId) {
       setShowStoreTypeModal(true);
     }
     setHasCheckedStoreTypes(true);
   }, [store, hasAnyType, hasCheckedStoreTypes]);
 
-  // Close the modal automatically once the store gains a type.
+  // Close the modal automatically
   useEffect(() => {
     if (showStoreTypeModal && hasAnyType) {
       setShowStoreTypeModal(false);

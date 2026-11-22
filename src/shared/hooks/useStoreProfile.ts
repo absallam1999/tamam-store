@@ -38,7 +38,12 @@ const EMPTY_PROFILE: StoreProfileDto = {
   longitude: 0,
   streetAr: "",
   streetEn: "",
-  city: "",
+  cityId: "",
+  cityAr: "",
+  cityEn: "",
+  storeCategoryId: "",
+  storeCategoryNameAr: "",
+  storeCategoryNameEn: "",
   isOpen: false,
   isBusy: false,
   openingTime: "00:00:00",
@@ -249,8 +254,7 @@ export function useDeleteStoreOpeningHour() {
   const queryClient = useQueryClient();
 
   return useMutation<void, Error, string>({
-    mutationFn: (id) =>
-      storeApi.openingHours.remove(id).then((r) => r.data),
+    mutationFn: (id) => storeApi.openingHours.remove(id).then((r) => r.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: STORE_OPENING_HOURS_KEY });
     },

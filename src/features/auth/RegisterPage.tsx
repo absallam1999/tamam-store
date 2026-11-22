@@ -1,11 +1,16 @@
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@app/providers/AuthProvider";
 import { useLanguage } from "@shared/hooks/useLanguage";
 import { useToast } from "@shared/components/Toaster";
 import { cn } from "@shared/utils/cn";
-import { usePublicStoreCategories } from "@shared/hooks/useStoreTypes";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, ApiError } from "@/lib/api-client";
+import { ENDPOINTS } from "@/config/api";
+import type {
+  CityListDto,
+  StoreCategoryDto,
+  SubmitStoreOnboardingDto,
+} from "@shared/types";
 
 // ============================================
 // Types
@@ -16,8 +21,8 @@ interface RegisterFormData {
   phoneNumber: string;
   email: string;
   address: string;
-  city: string;
-  prandName: string;
+  cityId: string;
+  brandName: string;
   note: string;
   acceptTerms: boolean;
 }
@@ -26,15 +31,12 @@ interface ValidationErrors {
   fullName?: string;
   phoneNumber?: string;
   email?: string;
-  types?: string;
+  city?: string;
+  category?: string;
   acceptTerms?: string;
 }
 
-interface CityOption {
-  id: string;
-  nameAr: string;
-  nameEn: string;
-}
+const DEFAULT_LOCATION = { lat: 30.0444, lng: 31.2357 };
 
 // ============================================
 // Translations
@@ -65,15 +67,18 @@ const t = {
   city: { ar: "المدينة", en: "City" },
   selectCity: { ar: "اختر المدينة", en: "Select city" },
   loadingCities: { ar: "جاري تحميل المدن...", en: "Loading cities..." },
-  storeTypes: { ar: "نوع المتجر", en: "Store Type" },
-  selectTypes: {
-    ar: "اختر نوع المتجر (يمكنك اختيار أكثر من نوع)",
-    en: "Select store type(s)",
+  storeCategory: { ar: "تصنيف المتجر", en: "Store Category" },
+  selectCategory: {
+    ar: "اختر تصنيف المتجر المناسب لنشاطك",
+    en: "Choose the category that best fits your business",
   },
-  loadingTypes: { ar: "جاري تحميل الأنواع...", en: "Loading types..." },
-  noTypesAvailable: {
-    ar: "لا توجد أنواع متاحة حالياً",
-    en: "No store types available",
+  loadingCategories: {
+    ar: "جاري تحميل التصنيفات...",
+    en: "Loading categories...",
+  },
+  noCategoriesAvailable: {
+    ar: "لا توجد تصنيفات متاحة حالياً",
+    en: "No categories available",
   },
   note: { ar: "ملاحظات إضافية (اختياري)", en: "Additional Notes (optional)" },
   notePlaceholder: {
@@ -93,6 +98,14 @@ const t = {
   },
   backToLogin: { ar: "العودة إلى تسجيل الدخول", en: "Back to Sign In" },
   closeAlert: { ar: "إغلاق", en: "Close" },
+  rateLimited: {
+    ar: "تم تجاوز الحد المسموح من الطلبات. يرجى المحاولة بعد قليل.",
+    en: "Too many requests. Please try again in a moment.",
+  },
+  orDivider: { ar: "أو", en: "or" },
+  haveAccount: { ar: "لديك حساب بالفعل؟", en: "Already have an account?" },
+  signIn: { ar: "تسجيل الدخول", en: "Sign In" },
+  optional: { ar: "اختياري", en: "Optional" },
   validation: {
     fullNameRequired: { ar: "الاسم مطلوب", en: "Name is required" },
     fullNameMin: {
@@ -111,9 +124,13 @@ const t = {
       ar: "يرجى إدخال بريد إلكتروني صحيح",
       en: "Please enter a valid email",
     },
-    typesRequired: {
-      ar: "يرجى اختيار نوع متجر واحد على الأقل",
-      en: "Please select at least one store type",
+    cityRequired: {
+      ar: "يرجى اختيار المدينة",
+      en: "Please select a city",
+    },
+    categoryRequired: {
+      ar: "يرجى اختيار تصنيف المتجر",
+      en: "Please select a store category",
     },
     termsRequired: {
       ar: "يجب الموافقة على الشروط والأحكام",
@@ -121,17 +138,6 @@ const t = {
     },
   },
 };
-
-// ============================================
-// Select classes
-// ============================================
-
-const selectClasses = cn(
-  "w-full py-3 rounded-xl bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-surface-100",
-  "placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 transition-all duration-200",
-  "disabled:opacity-50 disabled:cursor-not-allowed text-sm appearance-none",
-  "border-transparent focus:border-primary-500 dark:focus:border-primary-400 focus:ring-4 focus:ring-primary-500/15",
-);
 
 // ============================================
 // Component
@@ -145,25 +151,27 @@ export const RegisterPage: React.FC = () => {
   const isAr = currentLanguage === "ar";
   const lang = (obj: { ar: string; en: string }) => (isAr ? obj.ar : obj.en);
 
-  // Fetch store categories from API
-  const { data: storeCategories = [], isLoading: isLoadingTypes } =
-    usePublicStoreCategories();
-
-  // Cities state
-  const [cities, setCities] = useState<CityOption[]>([]);
+  const [cities, setCities] = useState<CityListDto[]>([]);
   const [isLoadingCities, setIsLoadingCities] = useState(true);
+
+  const [storeCategories, setStoreCategories] = useState<StoreCategoryDto[]>(
+    [],
+  );
+  const [isLoadingCategories, setIsLoadingCategories] = useState(true);
 
   const [formData, setFormData] = useState<RegisterFormData>({
     fullName: "",
     phoneNumber: "",
     email: "",
     address: "",
-    city: "",
-    prandName: "",
+    cityId: "",
+    brandName: "",
     note: "",
     acceptTerms: false,
   });
-  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>(
     {},
@@ -174,48 +182,47 @@ export const RegisterPage: React.FC = () => {
   );
   const [isSuccess, setIsSuccess] = useState(false);
 
-  // ============================================
-  // Fetch cities on mount
-  // ============================================
-
   useEffect(() => {
+    let cancelled = false;
+
     const fetchCities = async () => {
       try {
-        const response = await apiClient.get<any>("/api/public/cities");
-
-        // Handle wrapped response: { success: true, data: [...] }
-        let items: any[] = [];
-        if (response?.data && Array.isArray(response.data)) {
-          items = response.data;
-        } else if (Array.isArray(response)) {
-          items = response;
-        } else if (response?.data?.data && Array.isArray(response.data.data)) {
-          items = response.data.data;
-        }
-
-        setCities(
-          items
-            .filter((item: any) => item.isActive !== false)
-            .map((item: any) => ({
-              id: item.id,
-              nameAr: item.name || item.nameAr || "",
-              nameEn: item.name || item.nameEn || "",
-            })),
+        const { data } = await apiClient.get<CityListDto[]>(
+          ENDPOINTS.BROWSE.CITIES_LOOKUP,
         );
-      } catch (error) {
-        console.error("Failed to fetch cities:", error);
-        setCities([]);
+        if (!cancelled) setCities(data ?? []);
+      } catch {
+        if (!cancelled) setCities([]);
       } finally {
-        setIsLoadingCities(false);
+        if (!cancelled) setIsLoadingCities(false);
+      }
+    };
+
+    const fetchCategories = async () => {
+      try {
+        const { data } = await apiClient.get<StoreCategoryDto[]>(
+          ENDPOINTS.BROWSE.STORE_CATEGORIES,
+        );
+        if (!cancelled) {
+          const active = (data ?? [])
+            .filter((cat) => cat.isActive !== false)
+            .sort((a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0));
+          setStoreCategories(active);
+        }
+      } catch {
+        if (!cancelled) setStoreCategories([]);
+      } finally {
+        if (!cancelled) setIsLoadingCategories(false);
       }
     };
 
     fetchCities();
-  }, []);
+    fetchCategories();
 
-  // ============================================
-  // Handlers
-  // ============================================
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleChange = (
     field: keyof RegisterFormData,
@@ -236,18 +243,14 @@ export const RegisterPage: React.FC = () => {
     setTouchedFields((prev) => ({ ...prev, [field]: true }));
   };
 
-  const toggleType = (typeId: string) => {
-    setSelectedTypes((prev) =>
-      prev.includes(typeId)
-        ? prev.filter((t) => t !== typeId)
-        : [...prev, typeId],
-    );
-    // Clear types error as soon as user selects/deselects
+  const selectCategory = (categoryId: string) => {
+    setSelectedCategoryId(categoryId);
     setValidationErrors((prev) => {
       const updated = { ...prev };
-      delete updated.types;
+      delete updated.category;
       return updated;
     });
+    setTouchedFields((prev) => ({ ...prev, category: true }));
   };
 
   const validateForm = (): boolean => {
@@ -263,17 +266,18 @@ export const RegisterPage: React.FC = () => {
     else if (!/^01[0-25]\d{8}$/.test(formData.phoneNumber.trim()))
       errors.phoneNumber = lang(t.validation.phoneNumberInvalid);
 
+    if (!formData.cityId) errors.city = lang(t.validation.cityRequired);
+
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email))
       errors.email = lang(t.validation.emailInvalid);
 
-    if (selectedTypes.length === 0)
-      errors.types = lang(t.validation.typesRequired);
+    if (!selectedCategoryId)
+      errors.category = lang(t.validation.categoryRequired);
 
     if (!formData.acceptTerms)
       errors.acceptTerms = lang(t.validation.termsRequired);
 
     setValidationErrors(errors);
-
     return Object.keys(errors).length === 0;
   };
 
@@ -282,24 +286,11 @@ export const RegisterPage: React.FC = () => {
       fullName: true,
       phoneNumber: true,
       acceptTerms: true,
-      types: true,
+      category: true,
+      city: true,
     });
 
-    // Extra guard for empty types
-    if (selectedTypes.length === 0) {
-      setValidationErrors((prev) => ({
-        ...prev,
-        types: lang(t.validation.typesRequired),
-      }));
-      setTouchedFields((prev) => ({ ...prev, types: true }));
-      toast.error(
-        isAr ? "يرجى اختيار نوع المتجر" : "Please select a store type",
-      );
-      return;
-    }
-
-    const isValid = validateForm();
-    if (!isValid) {
+    if (!validateForm()) {
       toast.error(
         isAr ? "يرجى تصحيح الحقول المطلوبة" : "Please fix the required fields",
       );
@@ -310,15 +301,25 @@ export const RegisterPage: React.FC = () => {
     setServerError(null);
 
     try {
-      const payload = {
-        name: formData.fullName.trim(),
+      const same = (v: string) => {
+        const trimmed = v.trim();
+        return trimmed || undefined;
+      };
+
+      const payload: SubmitStoreOnboardingDto = {
         phoneNumber: formData.phoneNumber.trim(),
+        ownerName: formData.fullName.trim(),
         email: formData.email.trim() || undefined,
-        address: formData.address.trim() || undefined,
-        city: formData.city || undefined,
-        prandName: formData.prandName.trim() || undefined,
-        note: formData.note.trim() || undefined,
-        types: selectedTypes,
+        storeNameAr: formData.brandName.trim(),
+        storeNameEn: formData.brandName.trim(),
+        storeDescriptionAr: same(formData.note),
+        storeDescriptionEn: same(formData.note),
+        storeStreetAr: same(formData.address),
+        storeStreetEn: same(formData.address),
+        latitude: DEFAULT_LOCATION.lat,
+        longitude: DEFAULT_LOCATION.lng,
+        cityId: formData.cityId,
+        storeCategoryId: selectedCategoryId,
       };
 
       await submitStoreRequest(payload);
@@ -327,13 +328,15 @@ export const RegisterPage: React.FC = () => {
       toast.success(lang(t.successTitle), {
         description: lang(t.successMessage),
       });
-    } catch (error: any) {
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        (error instanceof Error
-          ? error.message
-          : lang(t.submitting) + " failed");
+    } catch (error) {
+      let message: string;
+      if (error instanceof ApiError && error.status === 429) {
+        message = lang(t.rateLimited);
+      } else if (error instanceof Error) {
+        message = error.message;
+      } else {
+        message = isAr ? "فشل إرسال الطلب" : "Failed to submit request";
+      }
       setServerError(message);
       toast.error(message);
     } finally {
@@ -343,24 +346,66 @@ export const RegisterPage: React.FC = () => {
 
   const inputBaseClasses = (hasError: boolean) =>
     cn(
-      "w-full py-3 rounded-xl bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-surface-100",
-      "placeholder:text-surface-400 dark:placeholder:text-surface-500 border-2 transition-all duration-200",
-      "disabled:opacity-50 disabled:cursor-not-allowed text-sm",
+      "w-full py-3 rounded-xl",
+      "bg-surface-100 dark:bg-surface-800",
+      "text-surface-900 dark:text-surface-100",
+      "placeholder:text-surface-400 dark:placeholder:text-surface-500",
+      "border-2 transition-all duration-200",
+      "disabled:opacity-50 disabled:cursor-not-allowed",
+      "text-sm",
       hasError
         ? "border-error-400 dark:border-error-500 focus:border-error-500 focus:ring-4 focus:ring-error-500/15"
-        : "border-transparent focus:border-primary-500 dark:focus:border-primary-400 focus:ring-4 focus:ring-primary-500/15",
+        : "border-transparent focus:border-primary-500 dark:focus:border-primary-400 focus:ring-4 focus:ring-primary-500/15 dark:focus:ring-primary-400/15",
     );
 
   // ============================================
-  // Success State
+  // Success State — unchanged
   // ============================================
   if (isSuccess) {
     return (
       <div className="w-full animate-fade-in-up">
-        <div className="flex justify-center mb-6">
-          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-success-100 dark:bg-success-900/30 flex items-center justify-center animate-scale-in">
+        <div className="text-center mb-6">
+          <div
+            className={cn(
+              "mx-auto w-20 h-20 rounded-full",
+              "bg-success-100 dark:bg-success-950/40",
+              "flex items-center justify-center",
+              "mb-6",
+            )}
+          >
             <svg
-              className="w-10 h-10 sm:w-12 sm:h-12 text-success-500 dark:text-success-400"
+              className="w-10 h-10 text-success-600 dark:text-success-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2.5}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="m4.5 12.75 6 6 9-13.5"
+              />
+            </svg>
+          </div>
+
+          <h1 className="text-2xl sm:text-3xl font-bold text-surface-900 dark:text-surface-100">
+            {lang(t.successTitle)}
+          </h1>
+          <p className="mt-2 text-sm text-surface-500 dark:text-surface-400 max-w-sm mx-auto">
+            {lang(t.successMessage)}
+          </p>
+        </div>
+
+        <div className="space-y-3 mb-6">
+          <div
+            className={cn(
+              "flex items-start gap-3 p-3.5 rounded-xl",
+              "bg-info-50 dark:bg-info-950/30",
+              "border border-info-200 dark:border-info-800/50",
+            )}
+          >
+            <svg
+              className="w-5 h-5 text-info-500 flex-shrink-0 mt-0.5"
               fill="none"
               viewBox="0 0 24 24"
               strokeWidth={1.5}
@@ -369,24 +414,68 @@ export const RegisterPage: React.FC = () => {
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+                d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
               />
             </svg>
+            <p className="text-sm text-info-800 dark:text-info-300 leading-relaxed">
+              {isAr
+                ? "وقت المراجعة المتوقع: 24-48 ساعة"
+                : "Expected review time: 24–48 hours"}
+            </p>
+          </div>
+
+          <div
+            className={cn(
+              "flex items-start gap-3 p-3.5 rounded-xl",
+              "bg-surface-100 dark:bg-surface-800/60",
+              "border border-surface-200 dark:border-surface-700",
+            )}
+          >
+            <svg
+              className="w-5 h-5 text-surface-500 dark:text-surface-400 flex-shrink-0 mt-0.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3"
+              />
+            </svg>
+            <p className="text-sm text-surface-700 dark:text-surface-300 leading-relaxed">
+              {isAr
+                ? "ستتلقى رسالة نصية على رقم هاتفك فور الموافقة على طلبك"
+                : "You'll receive an SMS at your phone number once approved"}
+            </p>
           </div>
         </div>
-        <div className="text-center mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-surface-900 dark:text-surface-100 mb-3">
-            {lang(t.successTitle)}
-          </h1>
-          <p className="text-sm text-surface-500 dark:text-surface-400">
-            {lang(t.successMessage)}
-          </p>
-        </div>
+
         <Link
           to="/auth/login"
-          className="block w-full py-3 px-6 rounded-xl text-center text-white font-semibold text-sm bg-primary-600 hover:bg-primary-700 shadow-lg shadow-primary-600/25 transition-all duration-200 active:scale-[0.98]"
+          className={cn(
+            "w-full py-3 px-6 rounded-xl text-white font-semibold text-sm",
+            "bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600",
+            "shadow-lg shadow-primary-600/25",
+            "transition-all duration-200 active:scale-[0.98]",
+            "flex items-center justify-center gap-2.5",
+          )}
         >
-          {lang(t.backToLogin)}
+          <svg
+            className={cn("w-5 h-5", isAr && "scale-x-[-1]")}
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth={1.5}
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"
+            />
+          </svg>
+          <span>{lang(t.backToLogin)}</span>
         </Link>
       </div>
     );
@@ -415,7 +504,10 @@ export const RegisterPage: React.FC = () => {
         <div
           role="alert"
           className={cn(
-            "mb-6 p-4 rounded-xl animate-fade-in bg-error-50 dark:bg-error-950/30 border border-error-200 dark:border-error-800/50 flex items-start gap-3",
+            "mb-6 p-4 rounded-xl animate-fade-in",
+            "bg-error-50 dark:bg-error-950/30",
+            "border border-error-200 dark:border-error-800/50",
+            "flex items-start gap-3",
           )}
         >
           <svg
@@ -439,7 +531,7 @@ export const RegisterPage: React.FC = () => {
           <button
             type="button"
             onClick={() => setServerError(null)}
-            className="text-error-400 hover:text-error-500 flex-shrink-0"
+            className="text-error-400 hover:text-error-500 dark:hover:text-error-300 transition-colors flex-shrink-0"
             aria-label={lang(t.closeAlert)}
           >
             <svg
@@ -460,12 +552,14 @@ export const RegisterPage: React.FC = () => {
       )}
 
       <form
-        onSubmit={(e) => e.preventDefault()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSubmit();
+        }}
         noValidate
-        className="space-y-4"
+        className="space-y-5"
       >
-        {" "}
-        {/* Full Name */}
+        {/* ── Full Name ─────────────────────────────────────────────── */}
         <div className="space-y-1.5">
           <label
             htmlFor="reg-name"
@@ -473,28 +567,60 @@ export const RegisterPage: React.FC = () => {
           >
             {lang(t.fullName)}
           </label>
-          <input
-            id="reg-name"
-            type="text"
-            value={formData.fullName}
-            onChange={(e) => handleChange("fullName", e.target.value)}
-            onBlur={() => handleBlur("fullName")}
-            placeholder={lang(t.fullNamePlaceholder)}
-            disabled={isSubmitting}
-            className={cn(
-              inputBaseClasses(
-                !!validationErrors.fullName && !!touchedFields.fullName,
-              ),
-              isAr ? "pr-4 pl-4" : "pl-4 pr-4",
-            )}
-          />
+          <div className="relative">
+            <div
+              className={cn(
+                "absolute top-1/2 -translate-y-1/2 pointer-events-none",
+                isAr ? "right-3" : "left-3",
+                validationErrors.fullName && touchedFields.fullName
+                  ? "text-error-400"
+                  : "text-surface-400 dark:text-surface-500",
+              )}
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"
+                />
+              </svg>
+            </div>
+            <input
+              id="reg-name"
+              type="text"
+              value={formData.fullName}
+              onChange={(e) => handleChange("fullName", e.target.value)}
+              onBlur={() => handleBlur("fullName")}
+              placeholder={lang(t.fullNamePlaceholder)}
+              autoComplete="name"
+              disabled={isSubmitting}
+              className={cn(
+                inputBaseClasses(
+                  !!validationErrors.fullName && !!touchedFields.fullName,
+                ),
+                isAr ? "pr-11 pl-4" : "pl-11 pr-4",
+              )}
+            />
+          </div>
           {validationErrors.fullName && touchedFields.fullName && (
-            <p className="text-xs text-error-500 dark:text-error-400 mt-1">
+            <p
+              className={cn(
+                "text-xs text-error-500 dark:text-error-400 mt-1",
+                isAr ? "mr-1" : "ml-1",
+              )}
+            >
               {validationErrors.fullName}
             </p>
           )}
         </div>
-        {/* Phone Number */}
+
+        {/* ── Phone ─────────────────────────────────────────────────── */}
         <div className="space-y-1.5">
           <label
             htmlFor="reg-phone"
@@ -503,10 +629,28 @@ export const RegisterPage: React.FC = () => {
             {lang(t.phoneNumber)}
           </label>
           <div className="relative">
-            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-              <span className="text-sm font-medium text-surface-500 dark:text-surface-400">
-                +20
-              </span>
+            <div
+              className={cn(
+                "absolute top-1/2 -translate-y-1/2 pointer-events-none",
+                isAr ? "right-3" : "left-3",
+                validationErrors.phoneNumber && touchedFields.phoneNumber
+                  ? "text-error-400"
+                  : "text-surface-400 dark:text-surface-500",
+              )}
+            >
+              <svg
+                className={cn("w-5 h-5", isAr && "scale-x-[-1]")}
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z"
+                />
+              </svg>
             </div>
             <input
               id="reg-phone"
@@ -524,13 +668,17 @@ export const RegisterPage: React.FC = () => {
                 inputBaseClasses(
                   !!validationErrors.phoneNumber && !!touchedFields.phoneNumber,
                 ),
-                "pl-12",
-                isAr ? "pr-4" : "pr-4",
+                isAr ? "pr-11 pl-4" : "pl-11 pr-4",
               )}
             />
           </div>
           {validationErrors.phoneNumber && touchedFields.phoneNumber && (
-            <p className="text-xs text-error-500 dark:text-error-400 mt-1">
+            <p
+              className={cn(
+                "text-xs text-error-500 dark:text-error-400 mt-1",
+                isAr ? "mr-1" : "ml-1",
+              )}
+            >
               {validationErrors.phoneNumber}
             </p>
           )}
@@ -540,37 +688,72 @@ export const RegisterPage: React.FC = () => {
               : "Enter Egyptian phone number (11 digits after +20)"}
           </p>
         </div>
-        {/* Email (optional) */}
+
+        {/* ── Email ─────────────────────────────────────────────────── */}
         <div className="space-y-1.5">
           <label
             htmlFor="reg-email"
-            className="block text-sm font-medium text-surface-700 dark:text-surface-300"
+            className="flex items-center gap-1.5 text-sm font-medium text-surface-700 dark:text-surface-300"
           >
             {lang(t.email)}
+            <span className="text-[10px] font-normal text-surface-400 dark:text-surface-500">
+              ({lang(t.optional)})
+            </span>
           </label>
-          <input
-            id="reg-email"
-            type="email"
-            value={formData.email}
-            onChange={(e) => handleChange("email", e.target.value)}
-            onBlur={() => handleBlur("email")}
-            placeholder={lang(t.emailPlaceholder)}
-            dir="ltr"
-            disabled={isSubmitting}
-            className={cn(
-              inputBaseClasses(
-                !!validationErrors.email && !!touchedFields.email,
-              ),
-              isAr ? "pr-4 pl-4" : "pl-4 pr-4",
-            )}
-          />
+          <div className="relative">
+            <div
+              className={cn(
+                "absolute top-1/2 -translate-y-1/2 pointer-events-none",
+                isAr ? "right-3" : "left-3",
+                validationErrors.email && touchedFields.email
+                  ? "text-error-400"
+                  : "text-surface-400 dark:text-surface-500",
+              )}
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"
+                />
+              </svg>
+            </div>
+            <input
+              id="reg-email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => handleChange("email", e.target.value)}
+              onBlur={() => handleBlur("email")}
+              placeholder={lang(t.emailPlaceholder)}
+              dir="ltr"
+              disabled={isSubmitting}
+              className={cn(
+                inputBaseClasses(
+                  !!validationErrors.email && !!touchedFields.email,
+                ),
+                isAr ? "pr-11 pl-4" : "pl-11 pr-4",
+              )}
+            />
+          </div>
           {validationErrors.email && touchedFields.email && (
-            <p className="text-xs text-error-500 dark:text-error-400 mt-1">
+            <p
+              className={cn(
+                "text-xs text-error-500 dark:text-error-400 mt-1",
+                isAr ? "mr-1" : "ml-1",
+              )}
+            >
               {validationErrors.email}
             </p>
           )}
         </div>
-        {/* Brand Name */}
+
+        {/* ── Brand name ────────────────────────────────────────────── */}
         <div className="space-y-1.5">
           <label
             htmlFor="reg-brand"
@@ -578,34 +761,60 @@ export const RegisterPage: React.FC = () => {
           >
             {lang(t.storeName)}
           </label>
-          <input
-            id="reg-brand"
-            type="text"
-            value={formData.prandName}
-            onChange={(e) => handleChange("prandName", e.target.value)}
-            placeholder={lang(t.storeNamePlaceholder)}
-            disabled={isSubmitting}
-            className={cn(
-              inputBaseClasses(false),
-              isAr ? "pr-4 pl-4" : "pl-4 pr-4",
-            )}
-          />
+          <div className="relative">
+            <div
+              className={cn(
+                "absolute top-1/2 -translate-y-1/2 pointer-events-none",
+                isAr ? "right-3" : "left-3",
+                "text-surface-400 dark:text-surface-500",
+              )}
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M13.5 21v-7.5a.75.75 0 0 1 .75-.75h3a.75.75 0 0 1 .75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349M3.75 21V9.349m0 0a3.001 3.001 0 0 0 3.75-.615A2.993 2.993 0 0 0 9.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 0 0 2.25 1.016c.896 0 1.7-.393 2.25-1.015a3.001 3.001 0 0 0 3.75.614m-16.5 0a3.004 3.004 0 0 1-.621-4.72l1.189-1.19A1.5 1.5 0 0 1 5.378 3h13.243a1.5 1.5 0 0 1 1.06.44l1.19 1.189a3 3 0 0 1-.621 4.72M6.75 18h3.75a.75.75 0 0 0 .75-.75V13.5a.75.75 0 0 0-.75-.75H6.75a.75.75 0 0 0-.75.75v3.75c0 .414.336.75.75.75Z"
+                />
+              </svg>
+            </div>
+            <input
+              id="reg-brand"
+              type="text"
+              value={formData.brandName}
+              onChange={(e) => handleChange("brandName", e.target.value)}
+              placeholder={lang(t.storeNamePlaceholder)}
+              disabled={isSubmitting}
+              className={cn(
+                inputBaseClasses(false),
+                isAr ? "pr-11 pl-4" : "pl-11 pr-4",
+              )}
+            />
+          </div>
         </div>
-        {/* City (select) + Address (text input) */}
+
+        {/* ── City + Address ────────────────────────────────────────── */}
         <div className="grid grid-cols-2 gap-3">
-          {/* City Select */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-surface-700 dark:text-surface-300">
               {lang(t.city)}
             </label>
             <div className="relative">
               <select
-                value={formData.city}
-                onChange={(e) => handleChange("city", e.target.value)}
+                value={formData.cityId}
+                onChange={(e) => handleChange("cityId", e.target.value)}
                 disabled={isSubmitting || isLoadingCities}
                 className={cn(
-                  selectClasses,
+                  inputBaseClasses(false),
                   isAr ? "pr-4 pl-10" : "pl-4 pr-10",
+                  "appearance-none cursor-pointer",
+                  (!formData.cityId || formData.cityId === "") &&
+                    "text-surface-400 dark:text-surface-500",
                 )}
               >
                 <option value="">
@@ -613,7 +822,9 @@ export const RegisterPage: React.FC = () => {
                 </option>
                 {cities.map((city) => (
                   <option key={city.id} value={city.id}>
-                    {isAr ? city.nameAr : city.nameEn}
+                    {isAr
+                      ? city.nameAr || city.nameEn
+                      : city.nameEn || city.nameAr}
                   </option>
                 ))}
               </select>
@@ -662,7 +873,6 @@ export const RegisterPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Address Input */}
           <div className="space-y-1.5">
             <label className="block text-sm font-medium text-surface-700 dark:text-surface-300">
               {lang(t.address)}
@@ -673,23 +883,26 @@ export const RegisterPage: React.FC = () => {
               onChange={(e) => handleChange("address", e.target.value)}
               placeholder={lang(t.addressPlaceholder)}
               disabled={isSubmitting}
-              className={cn(
-                inputBaseClasses(false),
-                isAr ? "pr-4 pl-4" : "pl-4 pr-4",
-              )}
+              className={cn(inputBaseClasses(false), "px-4")}
             />
           </div>
+          {validationErrors.city && touchedFields.city && (
+            <p className="text-xs text-error-500 dark:text-error-400 mt-1">
+              {validationErrors.city}
+            </p>
+          )}
         </div>
-        {/* Store Types - Fetched from API */}
+
+        {/* ── Store Category ────────────────────────── */}
         <div className="space-y-2">
           <label className="block text-sm font-medium text-surface-700 dark:text-surface-300">
-            {lang(t.storeTypes)}
+            {lang(t.storeCategory)}
           </label>
           <p className="text-xs text-surface-500 dark:text-surface-400">
-            {lang(t.selectTypes)}
+            {lang(t.selectCategory)}
           </p>
 
-          {isLoadingTypes ? (
+          {isLoadingCategories ? (
             <div className="flex items-center gap-2 py-3">
               <svg
                 className="w-4 h-4 animate-spin text-primary-500"
@@ -711,44 +924,55 @@ export const RegisterPage: React.FC = () => {
                 />
               </svg>
               <span className="text-xs text-surface-500 dark:text-surface-400">
-                {lang(t.loadingTypes)}
+                {lang(t.loadingCategories)}
               </span>
             </div>
           ) : storeCategories.length === 0 ? (
             <p className="text-xs text-surface-500 dark:text-surface-400 py-2">
-              {lang(t.noTypesAvailable)}
+              {lang(t.noCategoriesAvailable)}
             </p>
           ) : (
-            <div className="flex flex-wrap gap-2">
+            <div
+              className={cn(
+                "flex flex-wrap gap-2 rounded-xl p-2 -m-2 transition-colors",
+                validationErrors.category && touchedFields.category
+                  ? "ring-2 ring-error-500/20"
+                  : "",
+              )}
+            >
               {storeCategories.map((category) => {
-                const isSelected = selectedTypes.includes(category.id);
+                const isSelected = selectedCategoryId === category.id;
                 return (
                   <button
                     key={category.id}
                     type="button"
-                    onClick={() => toggleType(category.id)}
+                    onClick={() => selectCategory(category.id)}
                     disabled={isSubmitting}
+                    aria-pressed={isSelected}
                     className={cn(
-                      "px-3 py-1.5 rounded-xl text-sm font-medium border-2 transition-all duration-200",
+                      "px-4 py-2 rounded-xl text-sm font-medium border-2 transition-all duration-200",
                       isSelected
                         ? "bg-primary-100 dark:bg-primary-900/40 border-primary-500 text-primary-700 dark:text-primary-300"
                         : "bg-surface-100 dark:bg-surface-800 border-surface-200 dark:border-surface-700 text-surface-600 dark:text-surface-400 hover:border-primary-300",
                     )}
                   >
-                    {isAr ? category.nameAr : category.nameEn}
+                    {isAr
+                      ? category.nameAr || category.nameEn
+                      : category.nameEn || category.nameAr}
                   </button>
                 );
               })}
             </div>
           )}
 
-          {validationErrors.types && touchedFields.types && (
+          {validationErrors.category && touchedFields.category && (
             <p className="text-xs text-error-500 dark:text-error-400 mt-1">
-              {validationErrors.types}
+              {validationErrors.category}
             </p>
           )}
         </div>
-        {/* Note */}
+
+        {/* ── Note ──────────────────────────────────────────────────── */}
         <div className="space-y-1.5">
           <label className="block text-sm font-medium text-surface-700 dark:text-surface-300">
             {lang(t.note)}
@@ -759,14 +983,11 @@ export const RegisterPage: React.FC = () => {
             placeholder={lang(t.notePlaceholder)}
             rows={3}
             disabled={isSubmitting}
-            className={cn(
-              inputBaseClasses(false),
-              "resize-none",
-              isAr ? "pr-4 pl-4" : "pl-4 pr-4",
-            )}
+            className={cn(inputBaseClasses(false), "px-4 resize-none")}
           />
         </div>
-        {/* Terms */}
+
+        {/* ── Terms ─────────────────────────────────────────────────── */}
         <label className="flex items-start gap-2.5 cursor-pointer select-none group">
           <input
             type="checkbox"
@@ -779,8 +1000,8 @@ export const RegisterPage: React.FC = () => {
             className={cn(
               "w-5 h-5 rounded-md border-2 transition-all flex items-center justify-center flex-shrink-0 mt-0.5",
               formData.acceptTerms
-                ? "bg-primary-600 border-primary-600"
-                : "border-surface-300 dark:border-surface-600 group-hover:border-primary-400",
+                ? "bg-primary-600 border-primary-600 dark:bg-primary-500 dark:border-primary-500"
+                : "border-surface-300 dark:border-surface-600 group-hover:border-primary-400 bg-white dark:bg-surface-900",
             )}
           >
             {formData.acceptTerms && (
@@ -825,18 +1046,22 @@ export const RegisterPage: React.FC = () => {
             {validationErrors.acceptTerms}
           </p>
         )}
-        {/* Submit */}
+
+        {/* ── Submit ────────────────────────────────────────────────── */}
         <button
-          type="button" // <-- critical change
-          onClick={handleSubmit}
-          disabled={isSubmitting || selectedTypes.length === 0}
+          type="submit"
+          disabled={isSubmitting}
           className={cn(
-            "w-full py-3 px-6 rounded-xl text-white font-semibold text-sm bg-primary-600 hover:bg-primary-700 shadow-lg shadow-primary-600/25 transition-all duration-200 disabled:opacity-60 active:scale-[0.98] flex items-center justify-center gap-2.5",
-            selectedTypes.length === 0 && "cursor-not-allowed",
+            "w-full py-3 px-6 rounded-xl text-white font-semibold text-sm",
+            "bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600",
+            "shadow-lg shadow-primary-600/25",
+            "transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed active:scale-[0.98]",
+            "flex items-center justify-center gap-2.5",
           )}
         >
           {isSubmitting ? (
             <>
+              <span>{lang(t.submitting)}</span>
               <svg
                 className="w-5 h-5 animate-spin"
                 fill="none"
@@ -856,12 +1081,60 @@ export const RegisterPage: React.FC = () => {
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
                 />
               </svg>
-              <span>{lang(t.submitting)}</span>
             </>
           ) : (
-            <span>{lang(t.submit)}</span>
+            <>
+              <span>{lang(t.submit)}</span>
+              <svg
+                className={cn("w-5 h-5", isAr && "scale-x-[-1]")}
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"
+                />
+              </svg>
+            </>
           )}
         </button>
+
+        {/* ── Divider ───────────────────────────────────────────────── */}
+        <div className="relative pt-2">
+          <div
+            className="absolute inset-0 flex items-center"
+            aria-hidden="true"
+          >
+            <div className="w-full border-t border-surface-200 dark:border-surface-700" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-surface-50 dark:bg-surface-950 px-3 text-xs font-medium uppercase tracking-wider text-surface-400 dark:text-surface-500">
+              {lang(t.orDivider)}
+            </span>
+          </div>
+        </div>
+
+        {/* ── Back to login ─────────────────────────────────────────── */}
+        <div className="text-center">
+          <p className="text-sm text-surface-500 dark:text-surface-400">
+            {lang(t.haveAccount)}{" "}
+            <Link
+              to="/auth/login"
+              className={cn(
+                "font-semibold",
+                "text-primary-600 dark:text-primary-400",
+                "hover:text-primary-700 dark:hover:text-primary-300",
+                "hover:underline underline-offset-2",
+                "transition-colors",
+              )}
+            >
+              {lang(t.signIn)}
+            </Link>
+          </p>
+        </div>
       </form>
     </div>
   );
