@@ -56,8 +56,8 @@ const t = {
   emailPlaceholder: { ar: "owner@store.com", en: "owner@store.com" },
   storeName: { ar: "اسم المتجر التجاري", en: "Brand Name" },
   storeNamePlaceholder: {
-    ar: "مطعم القاهرة الكبير",
-    en: "Cairo Grand Restaurant",
+    ar: "مطعم تمام",
+    en: "Tamam Restaurant",
   },
   address: { ar: "العنوان (اختياري)", en: "Address (optional)" },
   addressPlaceholder: {

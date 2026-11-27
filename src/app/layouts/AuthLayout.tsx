@@ -58,12 +58,14 @@ const routeContent: Record<string, RouteContent> = {
       </svg>
     ),
   },
-  "/auth/signup": {
+
+  "/auth/register": {
     taglineAr: "ابدأ رحلتك",
     taglineEn: "Start Your Journey",
-    descriptionAr: "أنشئ متجرك الإلكتروني وابدأ في بيع منتجاتك اليوم.",
+    descriptionAr:
+      "أنشئ متجرك الإلكتروني وابدأ في بيع منتجاتك اليوم. نراجع الطلبات خلال 24-48 ساعة ونعلمك بالقرار",
     descriptionEn:
-      "Create your online store and start selling your products today.",
+      "Create your online store and start selling today. Applications are reviewed within 24–48h and you'll be notified of the decision.",
     icon: (_isAr: boolean) => (
       <svg
         className="w-6 h-6"
@@ -80,6 +82,7 @@ const routeContent: Record<string, RouteContent> = {
       </svg>
     ),
   },
+
   "/auth/forgot-password": {
     taglineAr: "استعادة كلمة المرور",
     taglineEn: "Reset Password",
@@ -103,6 +106,7 @@ const routeContent: Record<string, RouteContent> = {
       </svg>
     ),
   },
+
   "/auth/reset-password": {
     taglineAr: "تعيين كلمة مرور جديدة",
     taglineEn: "Set New Password",
@@ -263,7 +267,7 @@ const loginFeatures = [
   },
 ];
 
-/** Shown on /auth/signup — new register features */
+/** Shown on /auth/register */
 const registerFeatures = [
   {
     titleAr: "مراجعة سريعة",
@@ -591,7 +595,7 @@ export const AuthLayout: React.FC = () => {
   const [lastSession, setLastSession] = useState<LastSession | null>(null);
 
   const isLogin = location.pathname === "/auth/login";
-  const isRegister = location.pathname === "/auth/signup";
+  const isRegister = location.pathname === "/auth/register";
   const isRecovery =
     location.pathname === "/auth/forgot-password" ||
     location.pathname === "/auth/reset-password";

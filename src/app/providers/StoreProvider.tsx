@@ -48,7 +48,7 @@ export const StoreProvider: React.FC<StoreProviderProps> = ({ children }) => {
 
   const isOpen = store?.isOpen ?? false;
   const isBusy = store?.isBusy ?? false;
-  const isActive = store?.verificationStatus === "Approved";
+  const isActive = store?.verificationStatus === "Verified";
 
   const getStoreName = useCallback(
     (): string => store?.nameEn ?? store?.nameAr ?? "",
